@@ -11,6 +11,7 @@ import (
 type Config struct {
 	App      AppConfig
 	DB       DBConfig
+	Redis    RedisConfig
 	JWT      JWTConfig
 	Security SecurityConfig
 	Log      LogConfig
@@ -28,6 +29,18 @@ type DBConfig struct {
 	Password string
 	Name     string
 	SSLMode  string
+}
+
+type RedisConfig struct {
+	Host     string
+	Port     string
+	Password string
+	DB       int
+}
+
+// Addr returns the host:port string accepted by redis.Options.
+func (r RedisConfig) Addr() string {
+	return fmt.Sprintf("%s:%s", r.Host, r.Port)
 }
 
 type JWTConfig struct {
@@ -68,6 +81,10 @@ func Load() (*Config, error) {
 	v.SetDefault("DB_PASSWORD", "postgres")
 	v.SetDefault("DB_NAME", "auth")
 	v.SetDefault("DB_SSLMODE", "disable")
+	v.SetDefault("REDIS_HOST", "localhost")
+	v.SetDefault("REDIS_PORT", "6379")
+	v.SetDefault("REDIS_PASSWORD", "")
+	v.SetDefault("REDIS_DB", 0)
 	v.SetDefault("JWT_ACCESS_TTL", "15m")
 	v.SetDefault("JWT_REFRESH_TTL", "168h")
 	v.SetDefault("BRUTE_FORCE_MAX_ATTEMPTS", 5)
@@ -93,6 +110,12 @@ func Load() (*Config, error) {
 			Password: v.GetString("DB_PASSWORD"),
 			Name:     v.GetString("DB_NAME"),
 			SSLMode:  v.GetString("DB_SSLMODE"),
+		},
+		Redis: RedisConfig{
+			Host:     v.GetString("REDIS_HOST"),
+			Port:     v.GetString("REDIS_PORT"),
+			Password: v.GetString("REDIS_PASSWORD"),
+			DB:       v.GetInt("REDIS_DB"),
 		},
 		JWT: JWTConfig{
 			Secret:     v.GetString("JWT_SECRET"),

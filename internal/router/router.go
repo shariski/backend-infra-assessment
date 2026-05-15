@@ -8,6 +8,7 @@ import (
 	"auth/internal/handler"
 	"auth/internal/middleware"
 	"auth/internal/service"
+	"auth/pkg/ratelimit"
 
 	"github.com/gin-gonic/gin"
 	"log/slog"
@@ -19,6 +20,7 @@ func New(
 	log *slog.Logger,
 	authHandler *handler.AuthHandler,
 	jwtSvc *service.JWTService,
+	limiter ratelimit.Limiter,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -37,7 +39,7 @@ func New(
 	{
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login",
-			middleware.LoginRateLimit(cfg.Security.BruteForceMaxAttempts, cfg.Security.BruteForceMaxAttempts),
+			middleware.LoginRateLimit(limiter, cfg.Security.BruteForceMaxAttempts, cfg.Security.BruteForceMaxAttempts),
 			authHandler.Login,
 		)
 		auth.POST("/refresh", authHandler.Refresh)
@@ -49,7 +51,7 @@ func New(
 	admin.Use(
 		middleware.Auth(jwtSvc),
 		middleware.RequireRole(domain.RoleAdmin),
-		middleware.RateLimitByRole(), // STUB
+		middleware.RateLimitByRole(limiter),
 	)
 	{
 		admin.GET("/users", authHandler.ListUsers)
