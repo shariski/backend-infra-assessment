@@ -42,3 +42,16 @@ jobs:
 
       - name: Push Docker image
         run: docker push $IMAGE
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: zentara-auth-test
+          location: asia-southeast2
+
+      - name: Update image tag in manifest
+        run: |
+          sed -i "s|image:.*|image: $IMAGE|" k8s/deployment.yaml
+
+      - name: Apply manifest
+        run: kubectl apply -f k8s/
