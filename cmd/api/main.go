@@ -14,8 +14,8 @@ import (
 	"auth/internal/service"
 	"auth/pkg/database"
 	"auth/pkg/logger"
-	pkgredis "auth/pkg/redis"
 	"auth/pkg/ratelimit"
+	pkgredis "auth/pkg/redis"
 )
 
 func main() {
