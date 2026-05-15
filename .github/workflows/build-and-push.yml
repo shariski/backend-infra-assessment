@@ -63,4 +63,4 @@ jobs:
           sed -i "s|image:.*|image: $IMAGE|" k8s/${{ steps.target.outputs.env }}/deployment.yaml
 
       - name: Apply manifest
-        run: kubectl apply -f k8s/
+        run: kubectl apply -f k8s/${{ steps.target.outputs.env }}/
