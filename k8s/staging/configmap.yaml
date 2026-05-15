@@ -5,11 +5,11 @@ metadata:
   namespace: staging
 data:
   APP_PORT: "8080"
-  APP_ENV: "development"
+  APP_ENV: "staging"
   DB_HOST: "postgres"
   DB_PORT: "5432"
   DB_NAME: "auth"
-  DB_SSLMODE: "require"
+  DB_SSLMODE: "disable"
   JWT_ACCESS_TTL: "15m"
   JWT_REFRESH_TTL: "168h"
   BRUTE_FORCE_MAX_ATTEMPTS: "5"
