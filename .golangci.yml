@@ -1,0 +1,27 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - misspell
+    - unconvert
+    - unused
+    - gosec
+
+  settings:
+    errcheck:
+    # exclude-functions:
+    #   - (auth/internal/domain.LoginAttemptRepository).Create
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
