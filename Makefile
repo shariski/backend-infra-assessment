@@ -1,11 +1,12 @@
 .PHONY: setup run build test lint tidy db-up db-down migrate-up migrate-down
 
 DB_URL ?= postgres://postgres:postgres@localhost:5432/auth?sslmode=disable
+GOLANGCI_LINT_VERSION ?= v2.11.4
 
 setup:
 	@echo "==> Installing dev tools"
 	go install golang.org/x/tools/cmd/goimports@latest
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go install github.com/evilmartians/lefthook@latest
 	@echo "==> Activating Git hooks"
 	lefthook install
