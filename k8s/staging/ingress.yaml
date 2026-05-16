@@ -1,0 +1,46 @@
+# Reserve a global static IP first:
+#   gcloud compute addresses create auth-staging-ip --global
+# Point your DNS A record for auth-staging.<your-domain> at that IP.
+# The ManagedCertificate will issue once DNS resolves and the LB is up
+# (typically 10-30 min after first apply).
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: auth-staging-cert
+  namespace: staging
+spec:
+  domains:
+    - auth-staging.shariski.com
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth
+  namespace: staging
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "auth-staging-ip"
+    networking.gke.io/managed-certificates: "auth-staging-cert"
+    networking.gke.io/v1beta1.FrontendConfig: "auth-staging-fc"
+spec:
+  rules:
+    - host: auth-staging.shariski.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 80
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: auth-staging-fc
+  namespace: staging
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT

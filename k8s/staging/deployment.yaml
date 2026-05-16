@@ -37,16 +37,19 @@ spec:
               ephemeral-storage: 1Gi
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
