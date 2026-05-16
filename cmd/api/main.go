@@ -40,7 +40,11 @@ func main() {
 		log.Error("failed to connect to redis", "error", err)
 		os.Exit(1)
 	}
-	defer rdb.Close()
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			log.Warn("redis close failed", "error", err)
+		}
+	}()
 	limiter := ratelimit.NewRedis(rdb, log)
 
 	userRepo := repository.NewUserRepository(db)
