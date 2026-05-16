@@ -31,12 +31,12 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
-              ephemeral-storage: 1Gi
+              memory: 64Mi
+              ephemeral-storage: 200Mi
             limits:
               cpu: 500m
               memory: 256Mi
-              ephemeral-storage: 1Gi
+              ephemeral-storage: 500Mi
           livenessProbe:
             httpGet:
               path: /livez
