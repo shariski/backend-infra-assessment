@@ -14,11 +14,6 @@ linters:
     - unused
     - gosec
 
-  settings:
-    errcheck:
-    # exclude-functions:
-    #   - (auth/internal/domain.LoginAttemptRepository).Create
-
   exclusions:
     rules:
       - path: _test\.go
