@@ -48,8 +48,8 @@ spec:
               containerPort: 9080
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 25m
+              memory: 32Mi
             limits:
               cpu: 200m
               memory: 128Mi

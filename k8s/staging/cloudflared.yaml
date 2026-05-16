@@ -6,12 +6,12 @@ metadata:
   labels:
     app: cloudflared
 spec:
-  replicas: 2
+  # Single replica because the zonal cluster has only 1 node — multiple replicas
+  # would just pile onto the same node with no HA benefit. Cloudflare's tunnel
+  # tolerates connector restarts gracefully (other POPs maintain the route).
+  replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
+    type: Recreate
   selector:
     matchLabels:
       app: cloudflared
