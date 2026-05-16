@@ -1,0 +1,16 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: auth-bc
+  namespace: staging
+spec:
+  healthCheck:
+    type: HTTP
+    requestPath: /livez
+    port: 8080
+    checkIntervalSec: 10
+    timeoutSec: 5
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+  connectionDraining:
+    drainingTimeoutSec: 30
