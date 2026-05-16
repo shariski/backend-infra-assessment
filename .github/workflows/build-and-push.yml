@@ -52,7 +52,7 @@ jobs:
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: zentara-auth-test
+          cluster_name: auth-cluster
           location: asia-southeast2
 
       - name: Determine target namespace
