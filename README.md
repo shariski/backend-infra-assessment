@@ -245,7 +245,7 @@ migrations           golang-migrate SQL files
 k8s/
   namespaces.yaml      staging, production, monitoring
   staging/             auth, postgres, redis, services, HPA, ingress (unused, kept for reference), cloudflared, BackendConfig
-  production/          auth deployment + HPA (postgres/redis to be managed services)
+  production/          full mirror of staging (auth, postgres, redis, services, HPA, cloudflared) with prod-tier resource limits
   monitoring/          Promtail RBAC, config, DaemonSet, Grafana Cloud dashboard JSON
 ```
 
@@ -270,5 +270,5 @@ k8s/
 
 - **Cost**: cluster ~$3.50-11/mo (spot e2-small × 1-3 nodes) + Grafana Cloud free tier + Cloudflare free tier ≈ **<$15/mo for the assessment window**.
 - **Public dashboard** updates live; share the URL with reviewers — no Grafana account needed.
-- **Production environment** uses the same manifests under `k8s/production/` with HPA `minReplicas: 2` for HA. Currently kept deploy-ready but not active to control cost; CI/CD pipeline supports promoting builds via `main` branch.
+- **Production environment** uses the manifests under `k8s/production/` — same resource specs and replica counts as staging since this is an assessment with no real production workload. The separation is structural (separate namespace, separate Secret/ConfigMap, separate Cloudflare Tunnel) rather than resource-tier — in a real production deployment those values would be tuned upward, but spending more here would inflate cost without serving the assessment goal. CI/CD promotes builds to the `production` namespace on push to `main`. To activate: create `auth-secrets` and `cloudflared-token` Secrets in the `production` namespace (with a separate Cloudflare Tunnel for the prod hostname), then `kubectl apply -f k8s/production/`.
 - **Known limitation**: GKE Ingress controller (`gce` class) did not engage on this specific cluster despite the HTTP Load Balancing addon being enabled. Cloudflare Tunnel was chosen as the production ingress path, which gives a stronger security posture anyway (no public IPs). Ingress manifests are preserved in `k8s/staging/ingress.yaml` for reference and would work on a cluster with functioning GLBC.

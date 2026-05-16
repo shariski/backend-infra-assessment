@@ -2,13 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflared
-  namespace: staging
+  namespace: production
   labels:
     app: cloudflared
 spec:
-  # Single replica because the zonal cluster has only 1 node — multiple replicas
-  # would just pile onto the same node with no HA benefit. Cloudflare's tunnel
-  # tolerates connector restarts gracefully (other POPs maintain the route).
   replicas: 1
   strategy:
     type: Recreate
@@ -60,7 +57,7 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 64Mi
+              memory: 32Mi
             limits:
               cpu: 200m
               memory: 128Mi
