@@ -15,7 +15,13 @@ env:
   IMAGE_NAME: api
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

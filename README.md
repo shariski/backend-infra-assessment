@@ -27,6 +27,7 @@ golang-jwt/jwt v5 · bcrypt.
 
 ```bash
 cp .env.example .env          # then edit JWT_SECRET
+make setup                    # install dev tools + activate Git hooks (once per clone)
 make db-up                    # start PostgreSQL
 make migrate-up               # apply migrations
 make run                      # start the API on :8080
@@ -74,3 +75,16 @@ make test     # run unit tests
 make lint     # run golangci-lint
 make build    # build the binary into ./bin
 ```
+
+### Git hooks (lefthook)
+
+`make setup` installs [lefthook](https://github.com/evilmartians/lefthook) and
+runs `lefthook install`, which wires up:
+
+- **pre-commit** (on staged `*.go` files): `goimports -w`, `go vet ./...`,
+  `golangci-lint run ./...`
+- **pre-push**: `go test -short -race ./...`
+
+The hooks must be re-activated per clone — committing `lefthook.yml` alone is
+not enough. The same `golangci-lint` config (`.golangci.yml`) is also enforced
+in CI via `.github/workflows/test.yml`.

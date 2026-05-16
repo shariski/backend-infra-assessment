@@ -25,7 +25,4 @@ func TestSHA256Hex(t *testing.T) {
 	if got != want {
 		t.Errorf("SHA256Hex(%q) = %q, want %q", "hello", got, want)
 	}
-	if SHA256Hex("hello") != SHA256Hex("hello") {
-		t.Error("SHA256Hex is not deterministic")
-	}
 }

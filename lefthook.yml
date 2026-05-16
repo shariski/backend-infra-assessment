@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: goimports -w {staged_files}
+      stage_fixed: true
+    vet:
+      glob: "*.go"
+      run: go vet ./...
+    lint:
+      glob: "*.go"
+      run: golangci-lint run ./...
+
+pre-push:
+  commands:
+    unit-tests:
+      run: go test -short -race ./...
