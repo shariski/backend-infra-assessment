@@ -1,7 +1,9 @@
 package router
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"auth/config"
 	"auth/internal/domain"
@@ -10,8 +12,11 @@ import (
 	"auth/internal/service"
 	"auth/pkg/ratelimit"
 
-	"github.com/gin-gonic/gin"
 	"log/slog"
+
+	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 // New builds the Gin engine with all routes and middleware wired up.
@@ -21,6 +26,8 @@ func New(
 	authHandler *handler.AuthHandler,
 	jwtSvc *service.JWTService,
 	limiter ratelimit.Limiter,
+	db *gorm.DB,
+	rdb *redis.Client,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -31,8 +38,40 @@ func New(
 	r.Use(middleware.RequestLogger(log)) // STUB
 	r.Use(middleware.Audit(log))         // STUB
 
-	r.GET("/healthz", func(c *gin.Context) {
+	r.GET("/livez", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	r.GET("/readyz", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+
+		checks := gin.H{}
+		ready := true
+
+		sqlDB, err := db.DB()
+		if err != nil {
+			checks["db"] = err.Error()
+			ready = false
+		} else if err := sqlDB.PingContext(ctx); err != nil {
+			checks["db"] = err.Error()
+			ready = false
+		} else {
+			checks["db"] = "ok"
+		}
+
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			checks["redis"] = err.Error()
+			ready = false
+		} else {
+			checks["redis"] = "ok"
+		}
+
+		status := http.StatusOK
+		if !ready {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, gin.H{"ready": ready, "checks": checks})
 	})
 
 	auth := r.Group("/auth")

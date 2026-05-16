@@ -5,11 +5,14 @@ metadata:
   namespace: production
 data:
   APP_PORT: "8080"
-  APP_ENV: "development"
+  APP_ENV: "production"
   DB_HOST: "postgres"
   DB_PORT: "5432"
   DB_NAME: "auth"
   DB_SSLMODE: "require"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
   JWT_ACCESS_TTL: "15m"
   JWT_REFRESH_TTL: "168h"
   BRUTE_FORCE_MAX_ATTEMPTS: "5"

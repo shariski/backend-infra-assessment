@@ -11,3 +11,10 @@ metadata:
   name: production
   labels:
     environment: production
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    environment: monitoring
