@@ -4,9 +4,11 @@ A JWT-authenticated REST API with end-to-end encrypted public access, deployed o
 
 ## Live Demo
 
-- **API**: `https://auth-staging.shariski.com`
+- **API (staging)**: `https://auth-staging.shariski.com`
+- **API (production)**: `https://auth.shariski.com`
 - **Health**: [`GET /livez`](https://auth-staging.shariski.com/livez) — process alive
 - **Readiness**: [`GET /readyz`](https://auth-staging.shariski.com/readyz) — DB + Redis reachable
+- **Interactive docs (Swagger)**: <https://auth-staging.shariski.com/swagger/index.html> — staging only (production deliberately hides its API catalog; see [Key design decisions](#key-design-decisions))
 - **Monitoring Dashboard**: <https://shariski.grafana.net/public-dashboards/f63a038232084b678d72572f291e37ea>
 
 ```bash
@@ -65,6 +67,7 @@ curl https://auth-staging.shariski.com/readyz
 | **Promtail + Grafana Cloud Loki** (not in-cluster Loki) | No cluster compute for log storage. Free tier covers <50 GiB/mo. Public dashboard URL shareable with reviewers without granting GCP IAM. |
 | **`Recreate` Deployment strategy** | Single-node-class capacity is tight; rolling updates with surge can hit CPU/memory limits. `Recreate` accepts ~15-30s of downtime per rollout in exchange for reliability on constrained hardware. |
 | **Image substitution via CI `sed`** | Deployment manifest stores `<REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO>/api:<TAG>` as a placeholder; CI substitutes with the git SHA tag at apply time. Avoids committing the moving image reference into version control. |
+| **Swagger UI disabled in production** | `/swagger/*` is only registered when `APP_ENV != "production"` (see `internal/router/router.go`). Production deliberately hides its endpoint catalog, request/response schemas, and error-code map — they're a reconnaissance gift for attackers and add nothing for legitimate machine clients (who consume the API by contract). Reviewers and developers explore the API on **staging** instead; the `swagger.json` is also committed under `docs/` for offline reading. |
 
 ---
 
