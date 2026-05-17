@@ -1,0 +1,41 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: auth-cert
+  namespace: production
+spec:
+  domains:
+    - auth.shariski.com
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth
+  namespace: production
+  annotations:
+    kubernetes.io/ingress.global-static-ip-name: "auth-ip"
+    networking.gke.io/managed-certificates: "auth-cert"
+    networking.gke.io/v1beta1.FrontendConfig: "auth-fc"
+spec:
+  ingressClassName: gce
+  rules:
+    - host: auth.shariski.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 80
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: auth-fc
+  namespace: production
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT
