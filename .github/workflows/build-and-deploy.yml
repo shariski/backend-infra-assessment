@@ -1,0 +1,113 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: shariski-playground
+  REGION: asia-southeast2
+  LOCATION: asia-southeast2-a
+  CLUSTER_NAME: auth-cluster
+  REPOSITORY: auth
+  IMAGE_NAME: api
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.uri }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/39583321202/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+          service_account: 'github@shariski-playground.iam.gserviceaccount.com'
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        env:
+          REGION: ${{ env.REGION }}
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Compute image URI
+        id: image
+        env:
+          REGION: ${{ env.REGION }}
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REPOSITORY: ${{ env.REPOSITORY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          SHA: ${{ github.sha }}
+        run: |
+          URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${SHA}"
+          echo "uri=$URI" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/39583321202/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+          service_account: 'github@shariski-playground.iam.gserviceaccount.com'
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.AUTH_CLUSTER }}
+          location: ${{ env.LOCATION }}
+
+      - name: Determine target namespace
+        id: target
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" = "refs/heads/main" ]; then
+            echo "env=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update image tag in manifest
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          TARGET: ${{ steps.target.outputs.env }}
+        run: |
+          sed -i "s|image:.*|image: ${IMAGE}|" "k8s/${TARGET}/deployment.yaml"
+
+      - name: Apply manifest
+        env:
+          TARGET: ${{ steps.target.outputs.env }}
+        run: kubectl apply -f "k8s/${TARGET}/"
