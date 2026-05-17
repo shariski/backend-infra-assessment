@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"auth/config"
+	_ "auth/docs" // swag-generated OpenAPI spec
 	"auth/internal/domain"
 	"auth/internal/handler"
 	"auth/internal/middleware"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	swaggerfiles "github.com/swaggo/files"
+	ginswagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 )
 
@@ -84,6 +87,11 @@ func New(
 		auth.POST("/refresh", authHandler.Refresh)
 		auth.POST("/logout", middleware.Auth(jwtSvc), authHandler.Logout)
 		auth.GET("/me", middleware.Auth(jwtSvc), authHandler.Me)
+	}
+
+	// Swagger UI — exposed outside production so reviewers can explore the API.
+	if cfg.App.Env != "production" {
+		r.GET("/swagger/*any", ginswagger.WrapHandler(swaggerfiles.Handler))
 	}
 
 	admin := r.Group("/admin")

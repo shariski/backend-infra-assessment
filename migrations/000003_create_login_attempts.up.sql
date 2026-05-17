@@ -1,4 +1,4 @@
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email      TEXT NOT NULL,
     ip_address TEXT NOT NULL,
@@ -6,4 +6,4 @@ CREATE TABLE login_attempts (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_login_attempts_email_created ON login_attempts(email, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_email_created ON login_attempts(email, created_at);
