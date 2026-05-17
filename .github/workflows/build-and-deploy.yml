@@ -86,7 +86,7 @@ jobs:
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: ${{ env.AUTH_CLUSTER }}
+          cluster_name: ${{ env.CLUSTER_NAME }}
           location: ${{ env.LOCATION }}
 
       - name: Determine target namespace
