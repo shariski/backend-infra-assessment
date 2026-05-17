@@ -1,4 +1,4 @@
-name: Build and Deploy
+name: Build, Migrate, and Deploy
 
 on:
   push:
@@ -64,8 +64,72 @@ jobs:
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-  deploy:
+  migrate:
     needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: migrate-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/39583321202/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+          service_account: 'github@shariski-playground.iam.gserviceaccount.com'
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.LOCATION }}
+
+      - name: Determine target namespace
+        id: target
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" = "refs/heads/main" ]; then
+            echo "env=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run migrations
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          TARGET: ${{ steps.target.outputs.env }}
+        run: |
+          set -euo pipefail
+          MANIFEST="k8s/${TARGET}/jobs/migrate-job.yaml"
+
+          sed -i "s|image:.*|image: ${IMAGE}|" "$MANIFEST"
+
+          kubectl -n "$TARGET" delete job auth-migrate --ignore-not-found
+          kubectl apply -f "$MANIFEST"
+
+          echo "Waiting for migrations to complete..."
+          if ! kubectl wait \
+              --for=condition=complete \
+              --timeout=5m \
+              job/auth-migrate \
+              -n "$TARGET"; then
+            echo "::error::Migration job did not complete successfully"
+            kubectl describe job/auth-migrate -n "$TARGET" || true
+            kubectl logs -n "$TARGET" job/auth-migrate --tail=200 || true
+            exit 1
+          fi
+
+          echo "Migration logs:"
+          kubectl logs -n "$TARGET" job/auth-migrate --tail=100
+
+  deploy:
+    needs: [build, migrate]
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-${{ github.ref }}
