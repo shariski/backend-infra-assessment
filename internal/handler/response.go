@@ -9,13 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type errorBody struct {
+type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-type errorResponse struct {
-	Error errorBody `json:"error"`
+type ErrorResponse struct {
+	Error ErrorBody `json:"error"`
 }
 
 // respondJSON writes a successful JSON response.
@@ -25,8 +25,8 @@ func respondJSON(c *gin.Context, status int, data any) {
 
 // respondValidationError reports a request-binding/validation failure.
 func respondValidationError(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, errorResponse{
-		Error: errorBody{Code: "VALIDATION_ERROR", Message: err.Error()},
+	c.JSON(http.StatusBadRequest, ErrorResponse{
+		Error: ErrorBody{Code: "VALIDATION_ERROR", Message: err.Error()},
 	})
 }
 
@@ -53,5 +53,5 @@ func respondError(c *gin.Context, err error) {
 		status, code, message = http.StatusUnauthorized, "UNAUTHORIZED", err.Error()
 	}
 
-	c.JSON(status, errorResponse{Error: errorBody{Code: code, Message: message}})
+	c.JSON(status, ErrorResponse{Error: ErrorBody{Code: code, Message: message}})
 }
