@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: auth-migrate
+  namespace: production
+  labels:
+    app: auth-migrate
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: auth-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: <REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO>/api:<TAG>
+          command: ["sh", "-c"]
+          args:
+            - |
+              exec /usr/local/bin/migrate \
+                -path=/migrations \
+                -database="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}" \
+                up
+          envFrom:
+            - configMapRef:
+                name: auth-config
+            - secretRef:
+                name: auth-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 100Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+              ephemeral-storage: 200Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
