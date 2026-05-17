@@ -100,6 +100,20 @@ jobs:
             echo "env=staging" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Apply migration prerequisites
+        env:
+          TARGET: ${{ steps.target.outputs.env }}
+        run: |
+          set -euo pipefail
+          # The migrate Job needs: the ConfigMap (envFrom), the Secret (manual, already in place),
+          # and a reachable Postgres. Apply the data layer here so cold-start deploys work.
+          kubectl apply -f "k8s/${TARGET}/configmap.yaml"
+          kubectl apply -f "k8s/${TARGET}/postgres-service.yaml"
+          kubectl apply -f "k8s/${TARGET}/postgres-statefulset.yaml"
+
+          echo "Waiting for Postgres to be ready..."
+          kubectl -n "$TARGET" rollout status statefulset/postgres --timeout=3m
+
       - name: Run migrations
         env:
           IMAGE: ${{ needs.build.outputs.image }}
