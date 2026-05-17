@@ -253,6 +253,16 @@ k8s/
 
 ## API Endpoints
 
+Interactive docs are served at **`/swagger/index.html`** in any non-production environment (staging + local). Click **Authorize** in the UI and paste `Bearer <access_token>` to call the protected endpoints.
+
+To regenerate the OpenAPI spec after changing handler annotations:
+
+```sh
+make swagger
+```
+
+The generated `docs/` package is committed so the binary stays self-contained.
+
 | Method | Path             | Auth            | Description                       |
 |--------|------------------|-----------------|-----------------------------------|
 | POST   | `/auth/register` | public          | Create a user (Viewer role)       |

@@ -18,6 +18,19 @@ import (
 	pkgredis "auth/pkg/redis"
 )
 
+// @title                       Auth API
+// @version                     1.0
+// @description                 Auth API for backend infra assessment
+//
+// @contact.name                Falahudin Halim Shariski
+// @contact.email               falahudin6@gmail.com
+//
+// @BasePath                    https://auth.shariski.com
+//
+// @securityDefinitions.apikey  BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                 Paste the access_token from /auth/login as: "Bearer <token>".
 func main() {
 	cfg, err := config.Load()
 	if err != nil {

@@ -18,7 +18,18 @@ func NewAuthHandler(svc *service.AuthService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 
-// Register handles POST /auth/register.
+// Register creates a new user account.
+//
+// @Summary      Register a new user
+// @Description  Creates a Viewer-role account. Returns the created user (without the password hash).
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      RegisterRequest  true  "Email and password (min 8 chars)"
+// @Success      201   {object}  UserResponse
+// @Failure      400   {object}  ErrorResponse  "validation error"
+// @Failure      409   {object}  ErrorResponse  "email already taken"
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -33,7 +44,19 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	respondJSON(c, http.StatusCreated, toUserResponse(user))
 }
 
-// Login handles POST /auth/login.
+// Login authenticates a user and returns an access + refresh token pair.
+//
+// @Summary      Log in
+// @Description  Verifies credentials and returns JWT access and refresh tokens. Subject to per-IP brute-force protection and per-account lockout.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      LoginRequest  true  "User credentials"
+// @Success      200   {object}  TokenResponse
+// @Failure      400   {object}  ErrorResponse  "validation error"
+// @Failure      401   {object}  ErrorResponse  "invalid credentials"
+// @Failure      429   {object}  ErrorResponse  "account locked or rate-limited"
+// @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,7 +74,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-// Refresh handles POST /auth/refresh.
+// Refresh exchanges a refresh token for a new access + refresh token pair.
+//
+// @Summary      Refresh access token
+// @Description  Rotates the refresh token. The previous refresh token is invalidated on success.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      RefreshRequest  true  "Refresh token"
+// @Success      200   {object}  TokenResponse
+// @Failure      400   {object}  ErrorResponse  "validation error"
+// @Failure      401   {object}  ErrorResponse  "refresh token invalid, revoked, or expired"
+// @Router       /auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -69,7 +103,19 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
-// Logout handles POST /auth/logout (requires a valid access token).
+// Logout revokes the supplied refresh token.
+//
+// @Summary      Log out
+// @Description  Revokes the refresh token. The access token remains valid until it expires.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body      LogoutRequest  true  "Refresh token to revoke"
+// @Success      204   "no content"
+// @Failure      400   {object}  ErrorResponse  "validation error"
+// @Failure      401   {object}  ErrorResponse  "missing or invalid access token"
+// @Security     BearerAuth
+// @Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -83,7 +129,15 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// Me handles GET /auth/me (requires a valid access token).
+// Me returns the authenticated user's profile.
+//
+// @Summary      Current user
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  UserResponse
+// @Failure      401  {object}  ErrorResponse  "missing or invalid access token"
+// @Security     BearerAuth
+// @Router       /auth/me [get]
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID := middleware.CurrentUserID(c)
 	user, err := h.svc.GetUser(c.Request.Context(), userID)
@@ -94,7 +148,17 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	respondJSON(c, http.StatusOK, toUserResponse(user))
 }
 
-// ListUsers handles GET /admin/users (requires the Admin role).
+// ListUsers returns every registered user. Admin-only.
+//
+// @Summary      List all users (admin)
+// @Tags         admin
+// @Produce      json
+// @Success      200  {object}  UsersListResponse
+// @Failure      401  {object}  ErrorResponse  "missing or invalid access token"
+// @Failure      403  {object}  ErrorResponse  "caller is not Admin"
+// @Failure      429  {object}  ErrorResponse  "rate-limited"
+// @Security     BearerAuth
+// @Router       /admin/users [get]
 func (h *AuthHandler) ListUsers(c *gin.Context) {
 	users, err := h.svc.ListUsers(c.Request.Context())
 	if err != nil {
@@ -105,5 +169,5 @@ func (h *AuthHandler) ListUsers(c *gin.Context) {
 	for i := range users {
 		out = append(out, toUserResponse(&users[i]))
 	}
-	respondJSON(c, http.StatusOK, gin.H{"users": out})
+	respondJSON(c, http.StatusOK, UsersListResponse{Users: out})
 }

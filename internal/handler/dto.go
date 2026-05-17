@@ -35,6 +35,10 @@ type TokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type UsersListResponse struct {
+	Users []UserResponse `json:"users"`
+}
+
 func toUserResponse(u *domain.User) UserResponse {
 	return UserResponse{
 		ID:    u.ID.String(),
