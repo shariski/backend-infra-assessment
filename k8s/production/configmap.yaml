@@ -9,7 +9,7 @@ data:
   DB_HOST: "postgres"
   DB_PORT: "5432"
   DB_NAME: "auth"
-  DB_SSLMODE: "require"
+  DB_SSLMODE: "disable"
   REDIS_HOST: "redis"
   REDIS_PORT: "6379"
   REDIS_DB: "0"
