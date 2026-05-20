@@ -28,6 +28,8 @@ type Client interface {
 type Config struct {
 	BaseURL              string
 	Model                string
+	// Timeout bounds each HTTP call to Ollama. Zero means no timeout — always
+	// set it (the app config defaults it to 30s).
 	Timeout              time.Duration
 	CFAccessClientID     string
 	CFAccessClientSecret string
@@ -44,7 +46,7 @@ func New(cfg Config) Client {
 		model:   cfg.Model,
 		cfID:    cfg.CFAccessClientID,
 		cfKey:   cfg.CFAccessClientSecret,
-		http:    &http.Client{Timeout: cfg.Timeout},
+		httpClient: &http.Client{Timeout: cfg.Timeout},
 	}
 }
 
@@ -57,7 +59,7 @@ type ollama struct {
 	model   string
 	cfID    string
 	cfKey   string
-	http    *http.Client
+	httpClient *http.Client
 }
 
 type generateRequest struct {
@@ -85,9 +87,9 @@ func (o *ollama) Generate(ctx context.Context, prompt string) (string, error) {
 		req.Header.Set("CF-Access-Client-Secret", o.cfKey)
 	}
 
-	resp, err := o.http.Do(req)
+	resp, err := o.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -98,7 +100,7 @@ func (o *ollama) Generate(ctx context.Context, prompt string) (string, error) {
 
 	var gr generateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return "", fmt.Errorf("%w: decode response: %v", ErrUnavailable, err)
+		return "", fmt.Errorf("%w: decode response: %w", ErrUnavailable, err)
 	}
 	if strings.TrimSpace(gr.Response) == "" {
 		return "", fmt.Errorf("%w: empty response", ErrUnavailable)
