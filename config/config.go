@@ -67,7 +67,10 @@ type CacheConfig struct {
 }
 
 // LLMConfig configures the local LLM (Ollama) used for threat summaries.
-// BaseURL empty => feature disabled (the endpoint returns 503).
+// BaseURL empty => feature disabled (the endpoint returns 503); OLLAMA_URL,
+// CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET intentionally have no
+// defaults. MaxAttempts/MaxEvents cap how many recent login attempts / audit
+// events are fed to the model.
 type LLMConfig struct {
 	BaseURL              string
 	Model                string
