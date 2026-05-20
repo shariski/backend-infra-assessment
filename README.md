@@ -207,30 +207,87 @@ Cloudflare auto-creates the DNS CNAME. The domain resolves through Cloudflare's 
 
 ### LLM backend (VPS + Cloudflare Tunnel)
 
-The threat-analysis model runs on a small VPS (CPU-only), exposed to the cluster
-through a Cloudflare Tunnel with an Access **service token** so only the API can
-call it. Ollama itself stays bound to localhost.
+The threat-analysis model runs on a small VPS (CPU-only) as a self-contained
+**Docker Compose stack**, reached from the cluster over a **Cloudflare Tunnel**.
+Ollama has no published port and no auth of its own, so a tiny **nginx
+auth-proxy** in the same stack enforces a shared secret — a self-hosted stand-in
+for a Cloudflare Access service token. (Cloudflare's Zero Trust Access requires a
+billing method to activate; the proxy gives the same "only the API can call it"
+guarantee for free, and needs **no application code change** since the API
+already sends the `CF-Access-Client-Secret` header.)
+
+Request path: `cloudflared → ollama-proxy (nginx, checks secret) → ollama`.
+`cloudflared` dials *out* to Cloudflare, so the VPS exposes **no inbound ports**
+and its origin IP stays hidden.
+
+`~/ollama-stack/docker-compose.yml` on the VPS:
+
+```yaml
+services:
+  ollama:                                   # no host port — only reachable in-stack
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment: ["OLLAMA_KEEP_ALIVE=5m"]   # unload the model when idle
+    volumes: ["ollama_models:/root/.ollama"]
+    networks: [ollama_net]
+  ollama-proxy:                             # nginx: 403 unless the secret header matches
+    image: nginx:alpine
+    restart: unless-stopped
+    environment:
+      - OLLAMA_PROXY_SECRET=${OLLAMA_PROXY_SECRET}
+      - NGINX_ENVSUBST_FILTER=OLLAMA_PROXY
+    volumes: ["./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro"]
+    depends_on: [ollama]
+    networks: [ollama_net]
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    depends_on: [ollama-proxy]
+    networks: [ollama_net]
+volumes: {ollama_models: {}}
+networks: {ollama_net: {}}
+```
+
+`~/ollama-stack/nginx.conf.template` (the auth gate):
+
+```nginx
+server {
+  listen 80;
+  location / {
+    if ($http_cf_access_client_secret != "${OLLAMA_PROXY_SECRET}") { return 403; }
+    proxy_pass http://ollama:11434;
+    proxy_read_timeout 120s;   # CPU generations can be slow
+  }
+}
+```
+
+Deploy:
 
 ```bash
-# On the VPS (Ubuntu/Debian):
-curl -fsSL https://ollama.com/install.sh | sh        # installs + starts ollama (systemd)
-sudo mkdir -p /etc/systemd/system/ollama.service.d
-printf '[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:11434"\nEnvironment="OLLAMA_KEEP_ALIVE=5m"\n' \
-  | sudo tee /etc/systemd/system/ollama.service.d/override.conf
-sudo systemctl daemon-reload && sudo systemctl restart ollama
-ollama pull llama3.2:1b
+# On the VPS, in ~/ollama-stack (with the two files above):
+SECRET=$(openssl rand -hex 32)                          # the shared service-token secret
+printf 'OLLAMA_PROXY_SECRET=%s\nCF_TUNNEL_TOKEN=%s\n' "$SECRET" "<tunnel-token>" >> .env
+docker compose up -d
+docker compose exec ollama ollama pull llama3.2:1b
 
-# Add a 4 GB swapfile (the box has none — OOM cushion for CPU inference):
-sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+# 4 GB swapfile (OOM cushion for CPU inference; run as root):
+fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
 
-# Expose via Cloudflare Tunnel (cloudflared on the VPS):
-#   cloudflared service install <TUNNEL_TOKEN>
-#   Public hostname: ollama.shariski.com  ->  http://localhost:11434
-# Then in Cloudflare Zero Trust > Access, protect ollama.shariski.com with a
-# service-token policy; put the token id/secret in the cluster Secret as
-# CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET.
+In Cloudflare **Zero Trust → Networks → Tunnels**: create a tunnel, copy its
+token into `CF_TUNNEL_TOKEN` above, and add a public hostname
+`ollama.shariski.com → http://ollama-proxy:80`. (No Access application needed —
+the nginx proxy is the gate.)
+
+Finally, put the **same** `$SECRET` into the cluster Secret as
+`CF_ACCESS_CLIENT_SECRET` (with any non-empty `CF_ACCESS_CLIENT_ID`) in each env:
+
+```bash
+kubectl -n staging patch secret auth-secrets --type merge \
+  -p '{"stringData":{"CF_ACCESS_CLIENT_ID":"auth-api","CF_ACCESS_CLIENT_SECRET":"<SECRET>"}}'
+# repeat for -n production
 ```
 
 To run it locally instead (no VPS), use the docker-compose `llm` profile:
