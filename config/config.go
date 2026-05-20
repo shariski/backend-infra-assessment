@@ -16,6 +16,7 @@ type Config struct {
 	Security SecurityConfig
 	Log      LogConfig
 	Cache    CacheConfig
+	LLM      LLMConfig
 }
 
 type AppConfig struct {
@@ -65,6 +66,19 @@ type CacheConfig struct {
 	TTL time.Duration
 }
 
+// LLMConfig configures the local LLM (Ollama) used for threat summaries.
+// BaseURL empty => feature disabled (the endpoint returns 503).
+type LLMConfig struct {
+	BaseURL              string
+	Model                string
+	Timeout              time.Duration
+	CFAccessClientID     string
+	CFAccessClientSecret string
+	SummaryTTL           time.Duration
+	MaxAttempts          int
+	MaxEvents            int
+}
+
 // DSN builds a PostgreSQL connection string for Gorm.
 func (d DBConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -98,6 +112,11 @@ func Load() (*Config, error) {
 	v.SetDefault("BRUTE_FORCE_WINDOW", "15m")
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("CACHE_TTL", "60s")
+	v.SetDefault("OLLAMA_MODEL", "llama3.2:1b")
+	v.SetDefault("OLLAMA_TIMEOUT", "30s")
+	v.SetDefault("LLM_SUMMARY_TTL", "5m")
+	v.SetDefault("LLM_MAX_ATTEMPTS", 20)
+	v.SetDefault("LLM_MAX_EVENTS", 20)
 
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -139,6 +158,16 @@ func Load() (*Config, error) {
 		},
 		Cache: CacheConfig{
 			TTL: v.GetDuration("CACHE_TTL"),
+		},
+		LLM: LLMConfig{
+			BaseURL:              v.GetString("OLLAMA_URL"),
+			Model:                v.GetString("OLLAMA_MODEL"),
+			Timeout:              v.GetDuration("OLLAMA_TIMEOUT"),
+			CFAccessClientID:     v.GetString("CF_ACCESS_CLIENT_ID"),
+			CFAccessClientSecret: v.GetString("CF_ACCESS_CLIENT_SECRET"),
+			SummaryTTL:           v.GetDuration("LLM_SUMMARY_TTL"),
+			MaxAttempts:          v.GetInt("LLM_MAX_ATTEMPTS"),
+			MaxEvents:            v.GetInt("LLM_MAX_EVENTS"),
 		},
 	}
 

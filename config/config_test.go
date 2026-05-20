@@ -31,6 +31,21 @@ func TestLoad(t *testing.T) {
 	if cfg.Cache.TTL != 30*time.Second {
 		t.Errorf("Cache.TTL = %v, want %v", cfg.Cache.TTL, 30*time.Second)
 	}
+	if cfg.LLM.Model != "llama3.2:1b" {
+		t.Errorf("default LLM.Model = %q, want %q", cfg.LLM.Model, "llama3.2:1b")
+	}
+	if cfg.LLM.Timeout != 30*time.Second {
+		t.Errorf("default LLM.Timeout = %v, want %v", cfg.LLM.Timeout, 30*time.Second)
+	}
+	if cfg.LLM.SummaryTTL != 5*time.Minute {
+		t.Errorf("default LLM.SummaryTTL = %v, want %v", cfg.LLM.SummaryTTL, 5*time.Minute)
+	}
+	if cfg.LLM.MaxAttempts != 20 {
+		t.Errorf("default LLM.MaxAttempts = %d, want 20", cfg.LLM.MaxAttempts)
+	}
+	if cfg.LLM.BaseURL != "" {
+		t.Errorf("default LLM.BaseURL = %q, want empty (disabled)", cfg.LLM.BaseURL)
+	}
 }
 
 func TestLoad_CacheTTLDefault(t *testing.T) {
