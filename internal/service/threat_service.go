@@ -156,6 +156,16 @@ func (s *ThreatService) SummarizeUser(ctx context.Context, id uuid.UUID) (*Threa
 
 	prompt := buildPrompt(user, attempts, events)
 
+	// Debug visibility into what gets sent to Ollama. Counts surface the
+	// empty-slice case (the usual culprit); the full prompt confirms formatting.
+	// Note: prompt contains email + IPs (PII) — keep this at debug level only.
+	s.log.Debug("threat prompt built",
+		"user_id", user.ID,
+		"attempts", len(attempts),
+		"events", len(events),
+		"prompt", prompt,
+	)
+
 	// Scope the timeout to the LLM call only; the repo fetches above use the
 	// caller's ctx so a slow model can't be confused with a slow DB.
 	genCtx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
