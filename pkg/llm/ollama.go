@@ -99,7 +99,7 @@ func (o *ollama) Generate(ctx context.Context, prompt string) (string, error) {
 	}
 
 	var gr generateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&gr); err != nil {
 		return "", fmt.Errorf("%w: decode response: %w", ErrUnavailable, err)
 	}
 	if strings.TrimSpace(gr.Response) == "" {

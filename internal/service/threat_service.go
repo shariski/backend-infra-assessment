@@ -65,7 +65,10 @@ func NewThreatService(
 }
 
 // buildPrompt renders a deterministic prompt from the user's recent signals.
-// Pure function: no I/O, fully unit-testable.
+// Pure function: no I/O, fully unit-testable. The interpolated fields (email,
+// IP, method, path, status) are values the system itself recorded — validated
+// emails, c.ClientIP() IPs, and Gin route templates — not free-form user input,
+// and the output is plain text shown to an admin, never executed.
 func buildPrompt(user *domain.User, attempts []domain.LoginAttempt, events []domain.AuditEvent) string {
 	var b strings.Builder
 	b.WriteString("You are a security analyst for an authentication platform. ")
