@@ -34,3 +34,13 @@ func (r *loginAttemptRepository) CountRecentFailed(ctx context.Context, email st
 		Count(&count).Error
 	return int(count), err
 }
+
+func (r *loginAttemptRepository) ListRecentByEmail(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error) {
+	var attempts []domain.LoginAttempt
+	err := r.db.WithContext(ctx).
+		Where("email = ?", email).
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&attempts).Error
+	return attempts, err
+}
