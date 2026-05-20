@@ -123,11 +123,54 @@ func earliest(attempts []domain.LoginAttempt, events []domain.AuditEvent) *time.
 	return nil
 }
 
-// SummarizeUser is implemented in Task 7. This stub keeps the package building
-// (imports used) until the full body lands.
+// SummarizeUser returns a (possibly cached) LLM risk summary for a user.
+// The bool reports whether the result came from cache.
 func (s *ThreatService) SummarizeUser(ctx context.Context, id uuid.UUID) (*ThreatSummary, bool, error) {
-	_ = json.Marshal // placeholder use; replaced in Task 7
-	_ = threatCacheKeyPrefix
-	_ = earliest
-	return nil, false, domain.ErrLLMUnavailable
+	key := threatCacheKeyPrefix + id.String()
+
+	if raw, hit, err := s.cache.Get(ctx, key); err == nil && hit {
+		var cached ThreatSummary
+		if err := json.Unmarshal(raw, &cached); err == nil {
+			return &cached, true, nil
+		}
+		s.log.Warn("threat summary cache decode failed; regenerating", "key", key, "error", err)
+	}
+
+	user, err := s.users.FindByID(ctx, id)
+	if err != nil {
+		return nil, false, err // ErrUserNotFound propagates -> 404
+	}
+
+	attempts, err := s.attempts.ListRecentByEmail(ctx, user.Email, s.cfg.MaxAttempts)
+	if err != nil {
+		return nil, false, err
+	}
+	events, err := s.audits.ListRecentByActor(ctx, user.ID, s.cfg.MaxEvents)
+	if err != nil {
+		return nil, false, err
+	}
+
+	prompt := buildPrompt(user, attempts, events)
+
+	genCtx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
+	defer cancel()
+	assessment, err := s.llm.Generate(genCtx, prompt)
+	if err != nil {
+		s.log.Warn("llm generate failed", "error", err)
+		return nil, false, domain.ErrLLMUnavailable
+	}
+
+	summary := &ThreatSummary{
+		User:        SummaryUser{ID: user.ID.String(), Email: user.Email, Role: string(user.Role)},
+		Window:      SummaryWindow{LoginAttempts: len(attempts), AuditEvents: len(events), Since: earliest(attempts, events)},
+		Assessment:  strings.TrimSpace(assessment),
+		Model:       s.cfg.Model,
+		GeneratedAt: time.Now().UTC(),
+	}
+
+	if raw, err := json.Marshal(summary); err == nil {
+		_ = s.cache.Set(ctx, key, raw, s.cfg.SummaryTTL)
+	}
+
+	return summary, false, nil
 }
