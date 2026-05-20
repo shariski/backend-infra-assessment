@@ -11,6 +11,7 @@ import (
 	"auth/internal/handler"
 	"auth/internal/middleware"
 	"auth/internal/service"
+	"auth/pkg/cache"
 	"auth/pkg/ratelimit"
 
 	"log/slog"
@@ -29,6 +30,7 @@ func New(
 	authHandler *handler.AuthHandler,
 	jwtSvc *service.JWTService,
 	limiter ratelimit.Limiter,
+	respCache cache.Cache,
 	db *gorm.DB,
 	rdb *redis.Client,
 ) *gin.Engine {
@@ -86,7 +88,11 @@ func New(
 		)
 		auth.POST("/refresh", authHandler.Refresh)
 		auth.POST("/logout", middleware.Auth(jwtSvc), authHandler.Logout)
-		auth.GET("/me", middleware.Auth(jwtSvc), authHandler.Me)
+		auth.GET("/me",
+			middleware.Auth(jwtSvc),
+			middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
+			authHandler.Me,
+		)
 	}
 
 	// Swagger UI — exposed outside production so reviewers can explore the API.
@@ -101,7 +107,10 @@ func New(
 		middleware.RateLimitByRole(limiter),
 	)
 	{
-		admin.GET("/users", authHandler.ListUsers)
+		admin.GET("/users",
+			middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
+			authHandler.ListUsers,
+		)
 	}
 
 	return r

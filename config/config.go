@@ -15,6 +15,7 @@ type Config struct {
 	JWT      JWTConfig
 	Security SecurityConfig
 	Log      LogConfig
+	Cache    CacheConfig
 }
 
 type AppConfig struct {
@@ -58,6 +59,12 @@ type LogConfig struct {
 	Level string
 }
 
+// CacheConfig controls HTTP response caching. TTL applies to every cached
+// entry; the middleware does not yet support per-route overrides.
+type CacheConfig struct {
+	TTL time.Duration
+}
+
 // DSN builds a PostgreSQL connection string for Gorm.
 func (d DBConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -90,6 +97,7 @@ func Load() (*Config, error) {
 	v.SetDefault("BRUTE_FORCE_MAX_ATTEMPTS", 5)
 	v.SetDefault("BRUTE_FORCE_WINDOW", "15m")
 	v.SetDefault("LOG_LEVEL", "info")
+	v.SetDefault("CACHE_TTL", "60s")
 
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -128,6 +136,9 @@ func Load() (*Config, error) {
 		},
 		Log: LogConfig{
 			Level: v.GetString("LOG_LEVEL"),
+		},
+		Cache: CacheConfig{
+			TTL: v.GetDuration("CACHE_TTL"),
 		},
 	}
 
