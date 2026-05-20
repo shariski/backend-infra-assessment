@@ -19,4 +19,5 @@ type LoginAttempt struct {
 type LoginAttemptRepository interface {
 	Create(ctx context.Context, a *LoginAttempt) error
 	CountRecentFailed(ctx context.Context, email string, since time.Time) (int, error)
+	ListRecentByEmail(ctx context.Context, email string, limit int) ([]LoginAttempt, error)
 }

@@ -24,3 +24,13 @@ func (r *auditEventRepository) Create(ctx context.Context, e *domain.AuditEvent)
 	}
 	return r.db.WithContext(ctx).Create(e).Error
 }
+
+func (r *auditEventRepository) ListRecentByActor(ctx context.Context, actorID uuid.UUID, limit int) ([]domain.AuditEvent, error) {
+	var events []domain.AuditEvent
+	err := r.db.WithContext(ctx).
+		Where("actor_id = ?", actorID).
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&events).Error
+	return events, err
+}

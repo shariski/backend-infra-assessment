@@ -1,5 +1,36 @@
 basePath: https://auth.shariski.com
 definitions:
+  auth_internal_service.SummaryUser:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+    type: object
+  auth_internal_service.SummaryWindow:
+    properties:
+      audit_events:
+        type: integer
+      login_attempts:
+        type: integer
+      since:
+        type: string
+    type: object
+  auth_internal_service.ThreatSummary:
+    properties:
+      assessment:
+        type: string
+      generated_at:
+        type: string
+      model:
+        type: string
+      user:
+        $ref: '#/definitions/auth_internal_service.SummaryUser'
+      window:
+        $ref: '#/definitions/auth_internal_service.SummaryWindow'
+    type: object
   internal_handler.ErrorBody:
     properties:
       code:
@@ -102,6 +133,50 @@ paths:
       security:
       - BearerAuth: []
       summary: List all users (admin)
+      tags:
+      - admin
+  /admin/users/{id}/threat-summary:
+    get:
+      description: Summarizes a user's recent login attempts and audit events into
+        a plain-language risk assessment using a self-hosted LLM. Cached per target
+        user; see the X-Cache header (HIT/MISS). Returns 503 if the LLM backend is
+        unavailable.
+      parameters:
+      - description: User ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth_internal_service.ThreatSummary'
+        "400":
+          description: invalid user id
+          schema:
+            $ref: '#/definitions/internal_handler.ErrorResponse'
+        "401":
+          description: missing or invalid access token
+          schema:
+            $ref: '#/definitions/internal_handler.ErrorResponse'
+        "403":
+          description: caller is not Admin
+          schema:
+            $ref: '#/definitions/internal_handler.ErrorResponse'
+        "404":
+          description: user not found
+          schema:
+            $ref: '#/definitions/internal_handler.ErrorResponse'
+        "503":
+          description: LLM backend unavailable
+          schema:
+            $ref: '#/definitions/internal_handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: AI threat summary for a user (admin)
       tags:
       - admin
   /auth/login:

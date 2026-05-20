@@ -60,6 +60,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/users/{id}/threat-summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Summarizes a user's recent login attempts and audit events into a plain-language risk assessment using a self-hosted LLM. Cached per target user; see the X-Cache header (HIT/MISS). Returns 503 if the LLM backend is unavailable.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "AI threat summary for a user (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth_internal_service.ThreatSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid user id",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "missing or invalid access token",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "caller is not Admin",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "user not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "LLM backend unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/login": {
             "post": {
                 "description": "Verifies credentials and returns JWT access and refresh tokens. Subject to per-IP brute-force protection and per-account lockout.",
@@ -284,6 +348,54 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "auth_internal_service.SummaryUser": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth_internal_service.SummaryWindow": {
+            "type": "object",
+            "properties": {
+                "audit_events": {
+                    "type": "integer"
+                },
+                "login_attempts": {
+                    "type": "integer"
+                },
+                "since": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth_internal_service.ThreatSummary": {
+            "type": "object",
+            "properties": {
+                "assessment": {
+                    "type": "string"
+                },
+                "generated_at": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/auth_internal_service.SummaryUser"
+                },
+                "window": {
+                    "$ref": "#/definitions/auth_internal_service.SummaryWindow"
+                }
+            }
+        },
         "internal_handler.ErrorBody": {
             "type": "object",
             "properties": {

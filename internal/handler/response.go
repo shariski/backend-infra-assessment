@@ -51,6 +51,8 @@ func respondError(c *gin.Context, err error) {
 		status, code, message = http.StatusForbidden, "FORBIDDEN", err.Error()
 	case errors.Is(err, domain.ErrUnauthorized):
 		status, code, message = http.StatusUnauthorized, "UNAUTHORIZED", err.Error()
+	case errors.Is(err, domain.ErrLLMUnavailable):
+		status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", err.Error()
 	}
 
 	c.JSON(status, ErrorResponse{Error: ErrorBody{Code: code, Message: message}})

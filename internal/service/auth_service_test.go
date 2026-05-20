@@ -52,6 +52,7 @@ func (m *mockTokenRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 type mockAttemptRepo struct {
 	CreateFn            func(ctx context.Context, a *domain.LoginAttempt) error
 	CountRecentFailedFn func(ctx context.Context, email string, since time.Time) (int, error)
+	ListRecentByEmailFn func(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error)
 }
 
 func (m *mockAttemptRepo) Create(ctx context.Context, a *domain.LoginAttempt) error {
@@ -59,6 +60,9 @@ func (m *mockAttemptRepo) Create(ctx context.Context, a *domain.LoginAttempt) er
 }
 func (m *mockAttemptRepo) CountRecentFailed(ctx context.Context, email string, since time.Time) (int, error) {
 	return m.CountRecentFailedFn(ctx, email, since)
+}
+func (m *mockAttemptRepo) ListRecentByEmail(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error) {
+	return m.ListRecentByEmailFn(ctx, email, limit)
 }
 
 func newTestAuthService(users *mockUserRepo, tokens *mockTokenRepo, attempts *mockAttemptRepo) *AuthService {

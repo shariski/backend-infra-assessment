@@ -14,6 +14,7 @@ import (
 	"auth/internal/service"
 	"auth/pkg/cache"
 	"auth/pkg/database"
+	"auth/pkg/llm"
 	"auth/pkg/logger"
 	"auth/pkg/ratelimit"
 	pkgredis "auth/pkg/redis"
@@ -70,8 +71,17 @@ func main() {
 	jwtSvc := service.NewJWTService(cfg.JWT)
 	authSvc := service.NewAuthService(userRepo, tokenRepo, attemptRepo, jwtSvc, cfg.Security)
 	authHandler := handler.NewAuthHandler(authSvc)
+	llmClient := llm.New(llm.Config{
+		BaseURL:              cfg.LLM.BaseURL,
+		Model:                cfg.LLM.Model,
+		Timeout:              cfg.LLM.Timeout,
+		CFAccessClientID:     cfg.LLM.CFAccessClientID,
+		CFAccessClientSecret: cfg.LLM.CFAccessClientSecret,
+	})
+	threatSvc := service.NewThreatService(userRepo, attemptRepo, auditRepo, llmClient, respCache, cfg.LLM, log)
+	threatHandler := handler.NewThreatHandler(threatSvc)
 
-	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, respCache, db, rdb, auditRepo)
+	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, respCache, db, rdb, auditRepo, threatHandler)
 	srv := server.New(cfg.App.Port, engine)
 
 	if err := srv.Run(ctx, log); err != nil {

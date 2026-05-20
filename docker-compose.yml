@@ -40,6 +40,20 @@ services:
       timeout: 3s
       retries: 5
 
+  ollama:
+    profiles: ["llm"]
+    image: ollama/ollama:latest
+    container_name: auth-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - auth-ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   auth:
     profiles: ["app"]
     build:
@@ -57,9 +71,11 @@ services:
       # Override only the host-mode values that differ inside the compose network.
       DB_HOST: postgres
       REDIS_HOST: redis
+      OLLAMA_URL: http://ollama:11434
     ports:
       - "${APP_PORT}:8080"
 
 volumes:
   auth-pgdata:
   auth-redisdata:
+  auth-ollama:
