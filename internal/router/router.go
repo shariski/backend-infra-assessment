@@ -34,6 +34,7 @@ func New(
 	db *gorm.DB,
 	rdb *redis.Client,
 	auditRepo domain.AuditEventRepository,
+	threatHandler *handler.ThreatHandler,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -124,6 +125,7 @@ func New(
 			middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
 			authHandler.ListUsers,
 		)
+		admin.GET("/users/:id/threat-summary", threatHandler.Summarize)
 	}
 
 	return r
