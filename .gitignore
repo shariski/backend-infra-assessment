@@ -3,3 +3,4 @@
 *.log
 .serena
 .worktrees/
+.claude
