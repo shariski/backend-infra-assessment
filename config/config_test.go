@@ -51,8 +51,8 @@ func TestLoad_LLMDefaults(t *testing.T) {
 	if cfg.LLM.Model != "llama3.2:1b" {
 		t.Errorf("default LLM.Model = %q, want %q", cfg.LLM.Model, "llama3.2:1b")
 	}
-	if cfg.LLM.Timeout != 30*time.Second {
-		t.Errorf("default LLM.Timeout = %v, want %v", cfg.LLM.Timeout, 30*time.Second)
+	if cfg.LLM.Timeout != 60*time.Second {
+		t.Errorf("default LLM.Timeout = %v, want %v", cfg.LLM.Timeout, 60*time.Second)
 	}
 	if cfg.LLM.SummaryTTL != 5*time.Minute {
 		t.Errorf("default LLM.SummaryTTL = %v, want %v", cfg.LLM.SummaryTTL, 5*time.Minute)

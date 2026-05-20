@@ -20,7 +20,7 @@ data:
   LOG_LEVEL: "info"
   OLLAMA_URL: "https://ollama.shariski.com"
   OLLAMA_MODEL: "llama3.2:1b"
-  OLLAMA_TIMEOUT: "30s"
+  OLLAMA_TIMEOUT: "60s"
   LLM_SUMMARY_TTL: "5m"
   LLM_MAX_ATTEMPTS: "20"
   LLM_MAX_EVENTS: "20"
