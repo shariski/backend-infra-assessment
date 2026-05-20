@@ -12,4 +12,5 @@ var (
 	ErrAccountLocked      = errors.New("account temporarily locked due to too many failed login attempts")
 	ErrForbidden          = errors.New("forbidden")
 	ErrUnauthorized       = errors.New("unauthorized")
+	ErrLLMUnavailable     = errors.New("threat analysis is temporarily unavailable")
 )
