@@ -12,6 +12,7 @@ import (
 	"auth/internal/router"
 	"auth/internal/server"
 	"auth/internal/service"
+	"auth/pkg/cache"
 	"auth/pkg/database"
 	"auth/pkg/logger"
 	"auth/pkg/ratelimit"
@@ -59,6 +60,7 @@ func main() {
 		}
 	}()
 	limiter := ratelimit.NewRedis(rdb, log)
+	respCache := cache.NewRedis(rdb, log)
 
 	userRepo := repository.NewUserRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
@@ -69,7 +71,7 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, tokenRepo, attemptRepo, jwtSvc, cfg.Security)
 	authHandler := handler.NewAuthHandler(authSvc)
 
-	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, db, rdb, auditRepo)
+	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, respCache, db, rdb, auditRepo)
 	srv := server.New(cfg.App.Port, engine)
 
 	if err := srv.Run(ctx, log); err != nil {
