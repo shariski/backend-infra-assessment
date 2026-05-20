@@ -125,7 +125,7 @@ func Load() (*Config, error) {
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("CACHE_TTL", "60s")
 	v.SetDefault("OLLAMA_MODEL", "llama3.2:1b")
-	v.SetDefault("OLLAMA_TIMEOUT", "30s")
+	v.SetDefault("OLLAMA_TIMEOUT", "60s")
 	v.SetDefault("LLM_SUMMARY_TTL", "5m")
 	v.SetDefault("LLM_MAX_ATTEMPTS", 20)
 	v.SetDefault("LLM_MAX_EVENTS", 20)
