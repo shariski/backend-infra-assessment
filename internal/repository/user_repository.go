@@ -55,3 +55,10 @@ func (r *userRepository) List(ctx context.Context) ([]domain.User, error) {
 	err := r.db.WithContext(ctx).Order("created_at desc").Find(&users).Error
 	return users, err
 }
+
+func (r *userRepository) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role) error {
+	return r.db.WithContext(ctx).
+		Model(&domain.User{}).
+		Where("id = ?", id).
+		Update("role", role).Error
+}

@@ -1,4 +1,4 @@
-basePath: https://auth.shariski.com
+basePath: /
 definitions:
   auth_internal_service.SummaryUser:
     properties:
@@ -325,6 +325,8 @@ paths:
       summary: Register a new user
       tags:
       - auth
+schemes:
+- https
 securityDefinitions:
   BearerAuth:
     description: 'Paste the access_token from /auth/login as: "Bearer <token>".'

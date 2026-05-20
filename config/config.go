@@ -9,14 +9,15 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	DB       DBConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	Security SecurityConfig
-	Log      LogConfig
-	Cache    CacheConfig
-	LLM      LLMConfig
+	App       AppConfig
+	DB        DBConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	Security  SecurityConfig
+	Log       LogConfig
+	Cache     CacheConfig
+	LLM       LLMConfig
+	Bootstrap BootstrapConfig
 }
 
 type AppConfig struct {
@@ -80,6 +81,14 @@ type LLMConfig struct {
 	SummaryTTL           time.Duration
 	MaxAttempts          int
 	MaxEvents            int
+}
+
+// BootstrapConfig seeds an administrator on startup. Both fields empty disables
+// the bootstrap (the call becomes a no-op). Set via BOOTSTRAP_ADMIN_EMAIL and
+// BOOTSTRAP_ADMIN_PASSWORD; in the cluster these come from the auth Secret.
+type BootstrapConfig struct {
+	AdminEmail    string
+	AdminPassword string
 }
 
 // DSN builds a PostgreSQL connection string for Gorm.
@@ -171,6 +180,10 @@ func Load() (*Config, error) {
 			SummaryTTL:           v.GetDuration("LLM_SUMMARY_TTL"),
 			MaxAttempts:          v.GetInt("LLM_MAX_ATTEMPTS"),
 			MaxEvents:            v.GetInt("LLM_MAX_EVENTS"),
+		},
+		Bootstrap: BootstrapConfig{
+			AdminEmail:    v.GetString("BOOTSTRAP_ADMIN_EMAIL"),
+			AdminPassword: v.GetString("BOOTSTRAP_ADMIN_PASSWORD"),
 		},
 	}
 

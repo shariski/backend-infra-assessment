@@ -33,7 +33,7 @@ curl https://auth-staging.shariski.com/readyz
                           mTLS outbound tunnel (HTTP/2)
                                             |
    +----------------------------------------v-----------------------------------+
-   |  GKE Standard cluster  (asia-southeast2, regional, 3 x e2-small spot)      |
+   |  GKE Standard cluster  (asia-southeast2-a, zonal, 3 x e2-small spot)       |
    |                                                                            |
    |  +-----------------+    +----------------+    +------------------------+   |
    |  | cloudflared     |--->|  auth Service  |--->|  auth Deployment       |   |
@@ -62,7 +62,7 @@ curl https://auth-staging.shariski.com/readyz
 |---|---|
 | **Cloudflare Tunnel** instead of public Ingress/LB | Origin has zero public IP. Reduces attack surface; all traffic enters through Cloudflare's edge with WAF, rate-limit, and DDoS protection. Aligns with security-platform positioning. |
 | **GKE Standard** (vs. Autopilot) | Standard cluster's free zonal credit covers the management fee; spot e2-small nodes are ~$3.50/mo each. Autopilot's per-pod billing was significantly more expensive. |
-| **Regional cluster (3 zones)** | HA across 3 zones; ~$10/mo extra over zonal but provides smoother HPA scaling and a stronger HA narrative. |
+| **Zonal cluster (single zone)** | Runs in `asia-southeast2-a`, so it qualifies for the one free zonal management credit (a regional control plane would not); three spot `e2-small` nodes carry the workload. Trade-off: no cross-zone HA — a zone outage takes the cluster down — an acceptable cost/availability balance for this assessment. |
 | **`/livez` + `/readyz` split** | Liveness is dep-free (just confirms process is up). Readiness checks DB + Redis. Prevents cascading restarts when a downstream blip would otherwise mark the app unhealthy. |
 | **Promtail + Grafana Cloud Loki** (not in-cluster Loki) | No cluster compute for log storage. Free tier covers <50 GiB/mo. Public dashboard URL shareable with reviewers without granting GCP IAM. |
 | **`Recreate` Deployment strategy** | Single-node-class capacity is tight; rolling updates with surge can hit CPU/memory limits. `Recreate` accepts ~15-30s of downtime per rollout in exchange for reliability on constrained hardware. |
@@ -79,7 +79,7 @@ golang-jwt/jwt v5 · bcrypt.
 
 ## Implementation status
 
-- **Authentication**: register, login, refresh, logout, RBAC (Admin / Analyst / Viewer), bcrypt password hashing, per-IP login rate limiting, account-level brute-force protection.
+- **Authentication**: register, login, refresh, logout, RBAC (Admin / Analyst / Viewer), bcrypt password hashing, per-IP login rate limiting, account-level brute-force protection. An optional env-driven admin bootstrap (`BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`) idempotently seeds — or promotes — an Admin on startup so the Admin-only routes are reachable on a fresh deployment.
 - **Security Analytics**: request/response logging, a durable audit trail (every non-probe request persisted to `audit_events` with actor, action, status, IP, and request ID), and per-role API rate limiting (per-user token bucket on all authenticated routes — Admin 120 / Analyst 60 / Viewer 30 req/min) are all implemented.
 - **Caching**: per-user response caching on read-heavy GETs (`/auth/me`, `/admin/users`) — successful 200s stored in Redis keyed by route template + user ID, replayed with an `X-Cache: HIT/MISS` header, TTL via `CACHE_TTL` (default 60s); anonymous requests bypass the cache and Redis failures fail open to the handler.
 - **AI threat analysis (bonus)**: `GET /admin/users/:id/threat-summary` (Admin-only) summarizes a user's recent login attempts and audit events into a plain-language risk assessment via a self-hosted Ollama LLM (`llama3.2:1b`). Read-only and out of the auth path. Result cached per target user in Redis (`X-Cache: HIT/MISS`, TTL `LLM_SUMMARY_TTL`). The model runs on a separate VPS reached over a Cloudflare Tunnel; if it is unavailable the endpoint returns `503` and the rest of the API is unaffected.
@@ -146,8 +146,8 @@ gcloud artifacts repositories create auth \
 
 ```bash
 gcloud container clusters create auth-cluster \
-  --region=asia-southeast2 \
-  --num-nodes=1 \
+  --zone=asia-southeast2-a \
+  --num-nodes=3 \
   --machine-type=e2-small \
   --spot \
   --disk-size=15 \
@@ -159,7 +159,7 @@ gcloud container clusters create auth-cluster \
 ### Namespaces and secrets
 
 ```bash
-gcloud container clusters get-credentials auth-cluster --region asia-southeast2
+gcloud container clusters get-credentials auth-cluster --zone asia-southeast2-a
 
 kubectl apply -f k8s/namespaces.yaml
 
@@ -167,7 +167,9 @@ kubectl -n staging create secret generic auth-secrets \
   --from-literal=DB_USER=postgres \
   --from-literal=DB_PASSWORD="$(openssl rand -base64 24)" \
   --from-literal=REDIS_PASSWORD="$(openssl rand -base64 24)" \
-  --from-literal=JWT_SECRET="$(openssl rand -base64 48)"
+  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
+  --from-literal=BOOTSTRAP_ADMIN_EMAIL='admin@zentara.demo' \
+  --from-literal=BOOTSTRAP_ADMIN_PASSWORD='ZentaraAdmin#2026'
 
 # Grafana Cloud Loki credentials (from your Grafana Cloud stack)
 kubectl -n monitoring create secret generic grafana-cloud \
@@ -179,6 +181,15 @@ kubectl -n monitoring create secret generic grafana-cloud \
 kubectl -n staging create secret generic cloudflared-token \
   --from-literal=token='<tunnel token>'
 ```
+
+> **Admin bootstrap:** `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` seed an
+> Admin on startup (idempotent — created if absent, promoted if present) so the
+> Admin-only routes and the [Postman collection](#try-it-with-postman)'s admin flow
+> work out of the box. Use the same values for the Postman environment's
+> `admin_email` / `admin_password`. Omit both keys to disable seeding. The
+> `admin@zentara.demo` value is a staging-only demo credential — rotate it for any
+> real use. The deployment injects the Secret via `envFrom`, so a `kubectl apply`
+> rollout (or `kubectl rollout restart deploy/auth`) picks up new keys.
 
 ### Apply manifests
 
@@ -207,30 +218,87 @@ Cloudflare auto-creates the DNS CNAME. The domain resolves through Cloudflare's 
 
 ### LLM backend (VPS + Cloudflare Tunnel)
 
-The threat-analysis model runs on a small VPS (CPU-only), exposed to the cluster
-through a Cloudflare Tunnel with an Access **service token** so only the API can
-call it. Ollama itself stays bound to localhost.
+The threat-analysis model runs on a small VPS (CPU-only) as a self-contained
+**Docker Compose stack**, reached from the cluster over a **Cloudflare Tunnel**.
+Ollama has no published port and no auth of its own, so a tiny **nginx
+auth-proxy** in the same stack enforces a shared secret — a self-hosted stand-in
+for a Cloudflare Access service token. (Cloudflare's Zero Trust Access requires a
+billing method to activate; the proxy gives the same "only the API can call it"
+guarantee for free, and needs **no application code change** since the API
+already sends the `CF-Access-Client-Secret` header.)
+
+Request path: `cloudflared → ollama-proxy (nginx, checks secret) → ollama`.
+`cloudflared` dials *out* to Cloudflare, so the VPS exposes **no inbound ports**
+and its origin IP stays hidden.
+
+`~/ollama-stack/docker-compose.yml` on the VPS:
+
+```yaml
+services:
+  ollama:                                   # no host port — only reachable in-stack
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment: ["OLLAMA_KEEP_ALIVE=5m"]   # unload the model when idle
+    volumes: ["ollama_models:/root/.ollama"]
+    networks: [ollama_net]
+  ollama-proxy:                             # nginx: 403 unless the secret header matches
+    image: nginx:alpine
+    restart: unless-stopped
+    environment:
+      - OLLAMA_PROXY_SECRET=${OLLAMA_PROXY_SECRET}
+      - NGINX_ENVSUBST_FILTER=OLLAMA_PROXY
+    volumes: ["./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro"]
+    depends_on: [ollama]
+    networks: [ollama_net]
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    depends_on: [ollama-proxy]
+    networks: [ollama_net]
+volumes: {ollama_models: {}}
+networks: {ollama_net: {}}
+```
+
+`~/ollama-stack/nginx.conf.template` (the auth gate):
+
+```nginx
+server {
+  listen 80;
+  location / {
+    if ($http_cf_access_client_secret != "${OLLAMA_PROXY_SECRET}") { return 403; }
+    proxy_pass http://ollama:11434;
+    proxy_read_timeout 120s;   # CPU generations can be slow
+  }
+}
+```
+
+Deploy:
 
 ```bash
-# On the VPS (Ubuntu/Debian):
-curl -fsSL https://ollama.com/install.sh | sh        # installs + starts ollama (systemd)
-sudo mkdir -p /etc/systemd/system/ollama.service.d
-printf '[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:11434"\nEnvironment="OLLAMA_KEEP_ALIVE=5m"\n' \
-  | sudo tee /etc/systemd/system/ollama.service.d/override.conf
-sudo systemctl daemon-reload && sudo systemctl restart ollama
-ollama pull llama3.2:1b
+# On the VPS, in ~/ollama-stack (with the two files above):
+SECRET=$(openssl rand -hex 32)                          # the shared service-token secret
+printf 'OLLAMA_PROXY_SECRET=%s\nCF_TUNNEL_TOKEN=%s\n' "$SECRET" "<tunnel-token>" >> .env
+docker compose up -d
+docker compose exec ollama ollama pull llama3.2:1b
 
-# Add a 4 GB swapfile (the box has none — OOM cushion for CPU inference):
-sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+# 4 GB swapfile (OOM cushion for CPU inference; run as root):
+fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
 
-# Expose via Cloudflare Tunnel (cloudflared on the VPS):
-#   cloudflared service install <TUNNEL_TOKEN>
-#   Public hostname: ollama.shariski.com  ->  http://localhost:11434
-# Then in Cloudflare Zero Trust > Access, protect ollama.shariski.com with a
-# service-token policy; put the token id/secret in the cluster Secret as
-# CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET.
+In Cloudflare **Zero Trust → Networks → Tunnels**: create a tunnel, copy its
+token into `CF_TUNNEL_TOKEN` above, and add a public hostname
+`ollama.shariski.com → http://ollama-proxy:80`. (No Access application needed —
+the nginx proxy is the gate.)
+
+Finally, put the **same** `$SECRET` into the cluster Secret as
+`CF_ACCESS_CLIENT_SECRET` (with any non-empty `CF_ACCESS_CLIENT_ID`) in each env:
+
+```bash
+kubectl -n staging patch secret auth-secrets --type merge \
+  -p '{"stringData":{"CF_ACCESS_CLIENT_ID":"auth-api","CF_ACCESS_CLIENT_SECRET":"<SECRET>"}}'
+# repeat for -n production
 ```
 
 To run it locally instead (no VPS), use the docker-compose `llm` profile:
@@ -341,11 +409,34 @@ The generated `docs/` package is committed so the binary stays self-contained.
 | GET    | `/livez`         | public          | Liveness (no dependency checks)   |
 | GET    | `/readyz`        | public          | Readiness (checks DB + Redis)     |
 
+### Try it with Postman
+
+A ready-to-run collection lives in [`docs/postman/`](docs/postman):
+
+- `zentara-auth.postman_collection.json`
+- `zentara-auth.staging.postman_environment.json`
+
+Import both, select the **ZENTARA Auth — Staging** environment, then run the folders
+top-to-bottom (Collection Runner) or click through in order. Tokens are captured
+automatically, so there's no manual copy-paste:
+
+1. **Health** — `/livez`, `/readyz`.
+2. **Auth lifecycle** — register → login → `/auth/me` (watch `X-Cache` go MISS → HIT)
+   → refresh → logout.
+3. **RBAC proof** — a Viewer is denied `/admin/users` with `403 FORBIDDEN`.
+4. **Admin + AI threat analysis** — admin login → list users → `…/threat-summary`
+   (the LLM feature).
+
+Folder 4 needs an Admin account, seeded by the
+[admin bootstrap](#namespaces-and-secrets); the environment's `admin_email` /
+`admin_password` must match `BOOTSTRAP_ADMIN_*` on the server. The threat-summary
+request tolerates a `503` when the self-hosted model is cold or disabled.
+
 ---
 
 ## Operational notes
 
-- **Cost**: cluster ~$3.50-11/mo (spot e2-small × 1-3 nodes) + Grafana Cloud free tier + Cloudflare free tier ≈ **<$15/mo for the assessment window**.
+- **Cost**: cluster ~$10/mo (3 × spot e2-small, fixed node count) + Grafana Cloud free tier + Cloudflare free tier ≈ **<$15/mo for the assessment window**.
 - **Public dashboard** updates live; share the URL with reviewers — no Grafana account needed.
 - **Production environment** uses the manifests under `k8s/production/` — same resource specs and replica counts as staging since this is an assessment with no real production workload. The separation is structural (separate namespace, separate Secret/ConfigMap, separate Cloudflare Tunnel) rather than resource-tier — in a real production deployment those values would be tuned upward, but spending more here would inflate cost without serving the assessment goal. CI/CD promotes builds to the `production` namespace on push to `main`. To activate: create `auth-secrets` and `cloudflared-token` Secrets in the `production` namespace (with a separate Cloudflare Tunnel for the prod hostname), then `kubectl apply -f k8s/production/`.
 - **Known limitation**: GKE Ingress controller (`gce` class) did not engage on this specific cluster despite the HTTP Load Balancing addon being enabled. Cloudflare Tunnel was chosen as the production ingress path, which gives a stronger security posture anyway (no public IPs). Ingress manifests are preserved in `k8s/staging/ingress.yaml` for reference and would work on a cluster with functioning GLBC.

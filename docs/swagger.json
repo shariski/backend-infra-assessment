@@ -1,4 +1,7 @@
 {
+    "schemes": [
+        "https"
+    ],
     "swagger": "2.0",
     "info": {
         "description": "Auth API for backend infra assessment",
@@ -9,7 +12,7 @@
         },
         "version": "1.0"
     },
-    "basePath": "https://auth.shariski.com",
+    "basePath": "/",
     "paths": {
         "/admin/users": {
             "get": {
