@@ -19,7 +19,7 @@ data:
           password: ${LOKI_PASSWORD}
         # Identifies the cluster in Loki labels
         external_labels:
-          cluster: zentara-staging
+          cluster: auth-cluster
 
     # NOTE: We use static_configs with a path glob instead of kubernetes_sd_configs.
     # The k8s service discovery silently returned 0 targets on GKE 1.35 + Promtail 3.2
@@ -32,6 +32,10 @@ data:
             labels:
               job: pod-logs
               __path__: /var/log/pods/staging_*/*/*.log
+          - targets: [localhost]
+            labels:
+              job: pod-logs
+              __path__: /var/log/pods/production_*/*/*.log
         pipeline_stages:
           # Strip the container runtime wrapper (timestamp, stream, log content)
           - cri: {}

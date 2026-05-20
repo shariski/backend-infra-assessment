@@ -9,12 +9,15 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	DB       DBConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	Security SecurityConfig
-	Log      LogConfig
+	App       AppConfig
+	DB        DBConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	Security  SecurityConfig
+	Log       LogConfig
+	Cache     CacheConfig
+	LLM       LLMConfig
+	Bootstrap BootstrapConfig
 }
 
 type AppConfig struct {
@@ -58,6 +61,36 @@ type LogConfig struct {
 	Level string
 }
 
+// CacheConfig controls HTTP response caching. TTL applies to every cached
+// entry; the middleware does not yet support per-route overrides.
+type CacheConfig struct {
+	TTL time.Duration
+}
+
+// LLMConfig configures the local LLM (Ollama) used for threat summaries.
+// BaseURL empty => feature disabled (the endpoint returns 503); OLLAMA_URL,
+// CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET intentionally have no
+// defaults. MaxAttempts/MaxEvents cap how many recent login attempts / audit
+// events are fed to the model.
+type LLMConfig struct {
+	BaseURL              string
+	Model                string
+	Timeout              time.Duration
+	CFAccessClientID     string
+	CFAccessClientSecret string
+	SummaryTTL           time.Duration
+	MaxAttempts          int
+	MaxEvents            int
+}
+
+// BootstrapConfig seeds an administrator on startup. Both fields empty disables
+// the bootstrap (the call becomes a no-op). Set via BOOTSTRAP_ADMIN_EMAIL and
+// BOOTSTRAP_ADMIN_PASSWORD; in the cluster these come from the auth Secret.
+type BootstrapConfig struct {
+	AdminEmail    string
+	AdminPassword string
+}
+
 // DSN builds a PostgreSQL connection string for Gorm.
 func (d DBConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -90,6 +123,12 @@ func Load() (*Config, error) {
 	v.SetDefault("BRUTE_FORCE_MAX_ATTEMPTS", 5)
 	v.SetDefault("BRUTE_FORCE_WINDOW", "15m")
 	v.SetDefault("LOG_LEVEL", "info")
+	v.SetDefault("CACHE_TTL", "60s")
+	v.SetDefault("OLLAMA_MODEL", "llama3.2:1b")
+	v.SetDefault("OLLAMA_TIMEOUT", "60s")
+	v.SetDefault("LLM_SUMMARY_TTL", "5m")
+	v.SetDefault("LLM_MAX_ATTEMPTS", 20)
+	v.SetDefault("LLM_MAX_EVENTS", 20)
 
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError
@@ -128,6 +167,23 @@ func Load() (*Config, error) {
 		},
 		Log: LogConfig{
 			Level: v.GetString("LOG_LEVEL"),
+		},
+		Cache: CacheConfig{
+			TTL: v.GetDuration("CACHE_TTL"),
+		},
+		LLM: LLMConfig{
+			BaseURL:              v.GetString("OLLAMA_URL"),
+			Model:                v.GetString("OLLAMA_MODEL"),
+			Timeout:              v.GetDuration("OLLAMA_TIMEOUT"),
+			CFAccessClientID:     v.GetString("CF_ACCESS_CLIENT_ID"),
+			CFAccessClientSecret: v.GetString("CF_ACCESS_CLIENT_SECRET"),
+			SummaryTTL:           v.GetDuration("LLM_SUMMARY_TTL"),
+			MaxAttempts:          v.GetInt("LLM_MAX_ATTEMPTS"),
+			MaxEvents:            v.GetInt("LLM_MAX_EVENTS"),
+		},
+		Bootstrap: BootstrapConfig{
+			AdminEmail:    v.GetString("BOOTSTRAP_ADMIN_EMAIL"),
+			AdminPassword: v.GetString("BOOTSTRAP_ADMIN_PASSWORD"),
 		},
 	}
 

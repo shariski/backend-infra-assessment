@@ -19,14 +19,17 @@ type roleQuota struct {
 }
 
 // quotaForRole returns the per-user rate-limit policy for the given role.
+// Tiers descend with privilege: Admins run automation and dashboards, Analysts
+// drive interactive tooling, Viewers do occasional reads. burst absorbs short
+// page-load fan-out without letting sustained traffic exceed perMinute.
 func quotaForRole(role domain.Role) (roleQuota, bool) {
 	switch role {
 	case domain.RoleAdmin:
-		return roleQuota{perMinute: 3, burst: 5}, true
+		return roleQuota{perMinute: 120, burst: 30}, true
 	case domain.RoleAnalyst:
-		return roleQuota{perMinute: 2, burst: 5}, true
+		return roleQuota{perMinute: 60, burst: 20}, true
 	case domain.RoleViewer:
-		return roleQuota{perMinute: 1, burst: 3}, true
+		return roleQuota{perMinute: 30, burst: 10}, true
 	default:
 		return roleQuota{}, false
 	}

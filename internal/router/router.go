@@ -11,6 +11,7 @@ import (
 	"auth/internal/handler"
 	"auth/internal/middleware"
 	"auth/internal/service"
+	"auth/pkg/cache"
 	"auth/pkg/ratelimit"
 
 	"log/slog"
@@ -29,8 +30,11 @@ func New(
 	authHandler *handler.AuthHandler,
 	jwtSvc *service.JWTService,
 	limiter ratelimit.Limiter,
+	respCache cache.Cache,
 	db *gorm.DB,
 	rdb *redis.Client,
+	auditRepo domain.AuditEventRepository,
+	threatHandler *handler.ThreatHandler,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -39,7 +43,7 @@ func New(
 	r := gin.New()
 	r.Use(middleware.Recovery(log))
 	r.Use(middleware.RequestLogger(log)) // STUB
-	r.Use(middleware.Audit(log))         // STUB
+	r.Use(middleware.Audit(auditRepo, log))
 
 	r.GET("/livez", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -79,17 +83,33 @@ func New(
 
 	auth := r.Group("/auth")
 	{
+		// Public routes. /login has its own per-IP brute-force limiter; /refresh
+		// is guarded by refresh-token rotation, so neither carries a role yet.
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login",
 			middleware.LoginRateLimit(limiter, cfg.Security.BruteForceMaxAttempts, cfg.Security.BruteForceMaxAttempts),
 			authHandler.Login,
 		)
 		auth.POST("/refresh", authHandler.Refresh)
-		auth.POST("/logout", middleware.Auth(jwtSvc), authHandler.Logout)
-		auth.GET("/me", middleware.Auth(jwtSvc), authHandler.Me)
+
+		// Authenticated routes share the per-user, per-role token bucket.
+		// RateLimitByRole MUST follow Auth so the role is populated; the
+		// response cache sits inside the limiter so even cache hits are
+		// charged against the caller's quota.
+		authed := auth.Group("")
+		authed.Use(middleware.Auth(jwtSvc), middleware.RateLimitByRole(limiter))
+		{
+			authed.POST("/logout", authHandler.Logout)
+			authed.GET("/me",
+				middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
+				authHandler.Me,
+			)
+		}
 	}
 
-	// Swagger UI — exposed outside production so reviewers can explore the API.
+	// Swagger UI is intentionally disabled in production to avoid leaking the
+	// API surface (endpoint catalog, schemas, error codes) to unauthenticated
+	// callers. Staging keeps it on so reviewers and developers can explore.
 	if cfg.App.Env != "production" {
 		r.GET("/swagger/*any", ginswagger.WrapHandler(swaggerfiles.Handler))
 	}
@@ -101,7 +121,11 @@ func New(
 		middleware.RateLimitByRole(limiter),
 	)
 	{
-		admin.GET("/users", authHandler.ListUsers)
+		admin.GET("/users",
+			middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
+			authHandler.ListUsers,
+		)
+		admin.GET("/users/:id/threat-summary", threatHandler.Summarize)
 	}
 
 	return r

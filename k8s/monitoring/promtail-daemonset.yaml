@@ -48,7 +48,7 @@ spec:
               containerPort: 9080
           resources:
             requests:
-              cpu: 25m
+              cpu: 15m
               memory: 32Mi
             limits:
               cpu: 200m

@@ -5,14 +5,18 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"auth/config"
+	"auth/internal/bootstrap"
 	"auth/internal/handler"
 	"auth/internal/repository"
 	"auth/internal/router"
 	"auth/internal/server"
 	"auth/internal/service"
+	"auth/pkg/cache"
 	"auth/pkg/database"
+	"auth/pkg/llm"
 	"auth/pkg/logger"
 	"auth/pkg/ratelimit"
 	pkgredis "auth/pkg/redis"
@@ -25,7 +29,8 @@ import (
 // @contact.name                Falahudin Halim Shariski
 // @contact.email               falahudin6@gmail.com
 //
-// @BasePath                    https://auth.shariski.com
+// @BasePath                    /
+// @schemes                     https
 //
 // @securityDefinitions.apikey  BearerAuth
 // @in                          header
@@ -59,16 +64,39 @@ func main() {
 		}
 	}()
 	limiter := ratelimit.NewRedis(rdb, log)
+	respCache := cache.NewRedis(rdb, log)
 
 	userRepo := repository.NewUserRepository(db)
 	tokenRepo := repository.NewTokenRepository(db)
 	attemptRepo := repository.NewLoginAttemptRepository(db)
+	auditRepo := repository.NewAuditEventRepository(db)
+
+	// Seed an administrator if BOOTSTRAP_ADMIN_* is configured (idempotent).
+	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, 10*time.Second)
+	out, err := bootstrap.EnsureAdmin(bootstrapCtx, userRepo, cfg.Bootstrap.AdminEmail, cfg.Bootstrap.AdminPassword)
+	cancelBootstrap()
+	if err != nil {
+		log.Error("admin bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+	if out != bootstrap.OutcomeSkipped {
+		log.Info("admin bootstrap", "outcome", string(out), "email", cfg.Bootstrap.AdminEmail)
+	}
 
 	jwtSvc := service.NewJWTService(cfg.JWT)
 	authSvc := service.NewAuthService(userRepo, tokenRepo, attemptRepo, jwtSvc, cfg.Security)
 	authHandler := handler.NewAuthHandler(authSvc)
+	llmClient := llm.New(llm.Config{
+		BaseURL:              cfg.LLM.BaseURL,
+		Model:                cfg.LLM.Model,
+		Timeout:              cfg.LLM.Timeout,
+		CFAccessClientID:     cfg.LLM.CFAccessClientID,
+		CFAccessClientSecret: cfg.LLM.CFAccessClientSecret,
+	})
+	threatSvc := service.NewThreatService(userRepo, attemptRepo, auditRepo, llmClient, respCache, cfg.LLM, log)
+	threatHandler := handler.NewThreatHandler(threatSvc)
 
-	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, db, rdb)
+	engine := router.New(cfg, log, authHandler, jwtSvc, limiter, respCache, db, rdb, auditRepo, threatHandler)
 	srv := server.New(cfg.App.Port, engine)
 
 	if err := srv.Run(ctx, log); err != nil {
