@@ -152,6 +152,8 @@ func (s *ThreatService) SummarizeUser(ctx context.Context, id uuid.UUID) (*Threa
 
 	prompt := buildPrompt(user, attempts, events)
 
+	// Scope the timeout to the LLM call only; the repo fetches above use the
+	// caller's ctx so a slow model can't be confused with a slow DB.
 	genCtx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 	defer cancel()
 	assessment, err := s.llm.Generate(genCtx, prompt)

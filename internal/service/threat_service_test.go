@@ -43,7 +43,7 @@ func TestBuildPrompt_EmptyHistory(t *testing.T) {
 	}
 }
 
-// --- test doubles (mockUserRepo and mockAttemptRepo come from auth_service_test.go) ---
+// mockUserRepo and mockAttemptRepo are defined in auth_service_test.go (same package).
 
 type mockAuditRepo struct {
 	CreateFn            func(ctx context.Context, e *domain.AuditEvent) error
@@ -68,6 +68,7 @@ func (m *mockLLM) Generate(ctx context.Context, prompt string) (string, error) {
 type memCache struct {
 	store  map[string][]byte
 	getErr error
+	setErr error
 	setN   int
 }
 
@@ -82,6 +83,9 @@ func (c *memCache) Get(_ context.Context, key string) ([]byte, bool, error) {
 }
 func (c *memCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
 	c.setN++
+	if c.setErr != nil {
+		return c.setErr
+	}
 	c.store[key] = value
 	return nil
 }
@@ -192,5 +196,29 @@ func TestSummarizeUser_RedisDownFailOpen(t *testing.T) {
 	}
 	if got.Assessment != "ok" {
 		t.Errorf("Assessment = %q", got.Assessment)
+	}
+}
+
+func TestSummarizeUser_CacheSetErrorBestEffort(t *testing.T) {
+	uid := uuid.New()
+	users := &mockUserRepo{FindByIDFn: func(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+		return &domain.User{ID: uid, Email: "u@example.com", Role: domain.RoleViewer}, nil
+	}}
+	attempts := &mockAttemptRepo{ListRecentByEmailFn: func(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error) { return nil, nil }}
+	audits := &mockAuditRepo{ListRecentByActorFn: func(ctx context.Context, actorID uuid.UUID, limit int) ([]domain.AuditEvent, error) { return nil, nil }}
+	llmc := &mockLLM{GenerateFn: func(ctx context.Context, prompt string) (string, error) { return "fine", nil }}
+	cache := newMemCache()
+	cache.setErr = errors.New("redis write failed")
+	svc := newThreatService(users, attempts, audits, llmc, cache)
+
+	got, hit, err := svc.SummarizeUser(context.Background(), uid)
+	if err != nil {
+		t.Fatalf("cache Set failure must be best-effort, got error %v", err)
+	}
+	if hit {
+		t.Error("hit should be false on fresh generation")
+	}
+	if got.Assessment != "fine" {
+		t.Errorf("Assessment = %q, want 'fine'", got.Assessment)
 	}
 }
