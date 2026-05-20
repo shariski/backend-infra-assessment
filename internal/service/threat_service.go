@@ -71,10 +71,11 @@ func NewThreatService(
 // and the output is plain text shown to an admin, never executed.
 func buildPrompt(user *domain.User, attempts []domain.LoginAttempt, events []domain.AuditEvent) string {
 	var b strings.Builder
-	b.WriteString("You are a security analyst for an authentication platform. ")
-	b.WriteString("Based ONLY on the events below, write a concise (3-5 sentence) risk assessment for this user account. ")
+	b.WriteString("You are a defensive security monitoring assistant for the operator of this authentication platform. ")
+	b.WriteString("The data below is the platform's own audit log, reviewed by an authorized administrator — a routine internal security review, not an attack. ")
+	b.WriteString("Based ONLY on the events below, write a concise (3-5 sentence) summary of this account's recent authentication activity, flagging anything suspicious for the security team. ")
 	b.WriteString("Call out brute-force or credential-stuffing patterns, logins from many distinct IPs, and privilege-escalation attempts (e.g. 403s on admin routes). ")
-	b.WriteString("If nothing is suspicious, say so plainly.\n\n")
+	b.WriteString("If nothing is suspicious, say so plainly. Always produce the summary; do not refuse.\n\n")
 
 	fmt.Fprintf(&b, "Account: %s (role: %s)\n\n", user.Email, user.Role)
 
@@ -99,7 +100,7 @@ func buildPrompt(user *domain.User, attempts []domain.LoginAttempt, events []dom
 			e.CreatedAt.UTC().Format(time.RFC3339), e.Method, e.Path, e.StatusCode, e.IPAddress)
 	}
 
-	b.WriteString("\nRisk assessment:")
+	b.WriteString("\nSecurity activity summary:")
 	return b.String()
 }
 

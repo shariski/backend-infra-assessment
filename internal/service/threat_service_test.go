@@ -43,6 +43,19 @@ func TestBuildPrompt_EmptyHistory(t *testing.T) {
 	}
 }
 
+// Small models (llama3.2:1b) over-refuse when the task reads as "attack an
+// account". The prompt must frame the work as an authorized, defensive review
+// and tell the model not to refuse.
+func TestBuildPrompt_DefensiveFraming(t *testing.T) {
+	user := &domain.User{ID: uuid.New(), Email: "u@example.com", Role: domain.RoleViewer}
+	p := strings.ToLower(buildPrompt(user, nil, nil))
+	for _, want := range []string{"authorized", "do not refuse"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing defensive framing %q\n---\n%s", want, p)
+		}
+	}
+}
+
 // mockUserRepo and mockAttemptRepo are defined in auth_service_test.go (same package).
 
 type mockAuditRepo struct {
