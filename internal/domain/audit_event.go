@@ -24,7 +24,8 @@ type AuditEvent struct {
 	CreatedAt  time.Time
 }
 
-// AuditEventRepository persists audit events.
+// AuditEventRepository persists and queries audit events.
 type AuditEventRepository interface {
 	Create(ctx context.Context, e *AuditEvent) error
+	ListRecentByActor(ctx context.Context, actorID uuid.UUID, limit int) ([]AuditEvent, error)
 }
