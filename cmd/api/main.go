@@ -27,7 +27,8 @@ import (
 // @contact.name                Falahudin Halim Shariski
 // @contact.email               falahudin6@gmail.com
 //
-// @BasePath                    https://auth.shariski.com
+// @BasePath                    /
+// @schemes                     https
 //
 // @securityDefinitions.apikey  BearerAuth
 // @in                          header

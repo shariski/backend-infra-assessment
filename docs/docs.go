@@ -519,8 +519,8 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "",
-	BasePath:         "https://auth.shariski.com",
-	Schemes:          []string{},
+	BasePath:         "/",
+	Schemes:          []string{"https"},
 	Title:            "Auth API",
 	Description:      "Auth API for backend infra assessment",
 	InfoInstanceName: "swagger",
