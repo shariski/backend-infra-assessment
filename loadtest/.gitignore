@@ -1,6 +1,4 @@
-# k6 run artifacts and captured evidence (regenerated per run)
+# k6 run summary export — regenerated each run, not committed.
 summary.json
-*.png
-*.jpg
-*.jpeg
-screenshots/
+
+# Committed evidence (e.g. screenshots/) is intentionally tracked.

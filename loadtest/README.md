@@ -22,6 +22,41 @@ throttled at the edge.
 > with no rate-limit middleware, and it's bcrypt-heavy. The trade-off is that it
 > writes real rows; see [Cleanup](#cleanup).
 
+## Results — verified run (2026-05-20)
+
+A live run against staging scaled the Deployment **1 → 2 → 3** in ~90 seconds.
+
+**Request rate over the run** (Grafana, from Loki logs) — the traffic that drove
+the scaling: a clean trapezoid rising to ~7 req/s, held for ~4 minutes, then
+back to baseline.
+
+![Request rate during the load test](screenshots/hpa-loadtest-2026-05-20-request-rate.png)
+
+**HPA response** (`kubectl get hpa auth`, CPU shown as % of the `50m` request;
+pods cap at the `500m` limit ≈ 1000%):
+
+| Time | CPU / target | Replicas | Event |
+|---|---|---|---|
+| baseline | 1% / 70% | 1 | k6 ramp starting |
+| +~30s | 283% / 70% | 1 | threshold breached |
+| +~40s | 992% / 70% | 1 | single pod pinned at its limit |
+| +~60s | 992% / 70% | **2** | first scale-out |
+| +~90s | 992% / 70% | **3** | scaled to max |
+| hold | 500% → 334% | 3 | load now spread across 3 pods |
+
+Final state: **3/3 pods Running across 2 nodes**. CPU redistributed
+992% → 500% → 334% as replicas were added — confirming the new pods actually
+received traffic via the Service, not just got scheduled.
+
+**k6 summary** (5m01s, 20 VUs): `http_reqs` **1898** (6.27/s) ·
+`http_req_failed` **0.00%** (✓ `<0.02`) · `http_req_duration p(95)` **4.59s**
+(✓ `<5000`) · checks **1898/1898** 2xx.
+
+> The Grafana panel shows request rate, not CPU/replicas (this public dashboard
+> is log-derived). The HPA table above is the CPU/replica evidence, captured
+> from `kubectl`. Together they show both the cause (traffic) and the effect
+> (autoscaling).
+
 ## Prerequisites
 
 - `k6` installed — `brew install k6`
@@ -70,8 +105,9 @@ During the 4-minute hold you should see, in Terminal B, `REPLICAS` climb
    window — public dashboard:
    <https://shariski.grafana.net/public-dashboards/f63a038232084b678d72572f291e37ea>
 
-Screenshots dropped in this folder (`*.png` / `screenshots/`) are git-ignored;
-reference them from the architecture doc / submission instead.
+Save the Grafana screenshot under `screenshots/` and commit it (see the
+[Results](#results--verified-run-2026-05-20) section for the captured example).
+Only the regenerated `summary.json` is git-ignored.
 
 ## Reading the results
 
