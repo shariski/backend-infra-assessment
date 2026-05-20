@@ -31,6 +31,7 @@ func New(
 	limiter ratelimit.Limiter,
 	db *gorm.DB,
 	rdb *redis.Client,
+	auditRepo domain.AuditEventRepository,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -39,7 +40,7 @@ func New(
 	r := gin.New()
 	r.Use(middleware.Recovery(log))
 	r.Use(middleware.RequestLogger(log)) // STUB
-	r.Use(middleware.Audit(log))         // STUB
+	r.Use(middleware.Audit(auditRepo, log))
 
 	r.GET("/livez", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
