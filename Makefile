@@ -1,4 +1,4 @@
-.PHONY: setup run build test lint tidy db-up db-down migrate-up migrate-down swagger
+.PHONY: setup run build test lint tidy db-up db-down migrate-up migrate-down swagger loadtest loadtest-clean
 
 DB_URL ?= postgres://postgres:postgres@localhost:5432/auth?sslmode=disable
 GOLANGCI_LINT_VERSION ?= v2.11.4
@@ -43,3 +43,14 @@ migrate-up:
 
 migrate-down:
 	migrate -path migrations -database "$(DB_URL)" down 1
+
+# Load test: drives the staging HPA via port-forward. Requires a running
+# `kubectl -n staging port-forward svc/auth 8080:80`. See loadtest/README.md.
+loadtest:
+	k6 run -e RUN_ID=$$(date +%s) --summary-export loadtest/summary.json loadtest/k6/register-spike.js
+
+# Remove the users created by the load test.
+loadtest-clean:
+	kubectl -n staging exec -i statefulset/postgres -- \
+		psql -U postgres -d auth -c \
+		"DELETE FROM users WHERE email LIKE 'loadtest+%@k6.local';"
