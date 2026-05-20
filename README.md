@@ -33,7 +33,7 @@ curl https://auth-staging.shariski.com/readyz
                           mTLS outbound tunnel (HTTP/2)
                                             |
    +----------------------------------------v-----------------------------------+
-   |  GKE Standard cluster  (asia-southeast2, regional, 3 x e2-small spot)      |
+   |  GKE Standard cluster  (asia-southeast2-a, zonal, 3 x e2-small spot)       |
    |                                                                            |
    |  +-----------------+    +----------------+    +------------------------+   |
    |  | cloudflared     |--->|  auth Service  |--->|  auth Deployment       |   |
@@ -62,7 +62,7 @@ curl https://auth-staging.shariski.com/readyz
 |---|---|
 | **Cloudflare Tunnel** instead of public Ingress/LB | Origin has zero public IP. Reduces attack surface; all traffic enters through Cloudflare's edge with WAF, rate-limit, and DDoS protection. Aligns with security-platform positioning. |
 | **GKE Standard** (vs. Autopilot) | Standard cluster's free zonal credit covers the management fee; spot e2-small nodes are ~$3.50/mo each. Autopilot's per-pod billing was significantly more expensive. |
-| **Regional cluster (3 zones)** | HA across 3 zones; ~$10/mo extra over zonal but provides smoother HPA scaling and a stronger HA narrative. |
+| **Zonal cluster (single zone)** | Runs in `asia-southeast2-a`, so it qualifies for the one free zonal management credit (a regional control plane would not); three spot `e2-small` nodes carry the workload. Trade-off: no cross-zone HA — a zone outage takes the cluster down — an acceptable cost/availability balance for this assessment. |
 | **`/livez` + `/readyz` split** | Liveness is dep-free (just confirms process is up). Readiness checks DB + Redis. Prevents cascading restarts when a downstream blip would otherwise mark the app unhealthy. |
 | **Promtail + Grafana Cloud Loki** (not in-cluster Loki) | No cluster compute for log storage. Free tier covers <50 GiB/mo. Public dashboard URL shareable with reviewers without granting GCP IAM. |
 | **`Recreate` Deployment strategy** | Single-node-class capacity is tight; rolling updates with surge can hit CPU/memory limits. `Recreate` accepts ~15-30s of downtime per rollout in exchange for reliability on constrained hardware. |
@@ -146,8 +146,8 @@ gcloud artifacts repositories create auth \
 
 ```bash
 gcloud container clusters create auth-cluster \
-  --region=asia-southeast2 \
-  --num-nodes=1 \
+  --zone=asia-southeast2-a \
+  --num-nodes=3 \
   --machine-type=e2-small \
   --spot \
   --disk-size=15 \
@@ -159,7 +159,7 @@ gcloud container clusters create auth-cluster \
 ### Namespaces and secrets
 
 ```bash
-gcloud container clusters get-credentials auth-cluster --region asia-southeast2
+gcloud container clusters get-credentials auth-cluster --zone asia-southeast2-a
 
 kubectl apply -f k8s/namespaces.yaml
 
@@ -436,7 +436,7 @@ request tolerates a `503` when the self-hosted model is cold or disabled.
 
 ## Operational notes
 
-- **Cost**: cluster ~$3.50-11/mo (spot e2-small × 1-3 nodes) + Grafana Cloud free tier + Cloudflare free tier ≈ **<$15/mo for the assessment window**.
+- **Cost**: cluster ~$10/mo (3 × spot e2-small, fixed node count) + Grafana Cloud free tier + Cloudflare free tier ≈ **<$15/mo for the assessment window**.
 - **Public dashboard** updates live; share the URL with reviewers — no Grafana account needed.
 - **Production environment** uses the manifests under `k8s/production/` — same resource specs and replica counts as staging since this is an assessment with no real production workload. The separation is structural (separate namespace, separate Secret/ConfigMap, separate Cloudflare Tunnel) rather than resource-tier — in a real production deployment those values would be tuned upward, but spending more here would inflate cost without serving the assessment goal. CI/CD promotes builds to the `production` namespace on push to `main`. To activate: create `auth-secrets` and `cloudflared-token` Secrets in the `production` namespace (with a separate Cloudflare Tunnel for the prod hostname), then `kubectl apply -f k8s/production/`.
 - **Known limitation**: GKE Ingress controller (`gce` class) did not engage on this specific cluster despite the HTTP Load Balancing addon being enabled. Cloudflare Tunnel was chosen as the production ingress path, which gives a stronger security posture anyway (no public IPs). Ingress manifests are preserved in `k8s/staging/ingress.yaml` for reference and would work on a cluster with functioning GLBC.
