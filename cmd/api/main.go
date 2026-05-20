@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"auth/config"
+	"auth/internal/bootstrap"
 	"auth/internal/handler"
 	"auth/internal/repository"
 	"auth/internal/router"
@@ -68,6 +70,18 @@ func main() {
 	tokenRepo := repository.NewTokenRepository(db)
 	attemptRepo := repository.NewLoginAttemptRepository(db)
 	auditRepo := repository.NewAuditEventRepository(db)
+
+	// Seed an administrator if BOOTSTRAP_ADMIN_* is configured (idempotent).
+	bootstrapCtx, cancelBootstrap := context.WithTimeout(ctx, 10*time.Second)
+	out, err := bootstrap.EnsureAdmin(bootstrapCtx, userRepo, cfg.Bootstrap.AdminEmail, cfg.Bootstrap.AdminPassword)
+	cancelBootstrap()
+	if err != nil {
+		log.Error("admin bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+	if out != bootstrap.OutcomeSkipped {
+		log.Info("admin bootstrap", "outcome", string(out), "email", cfg.Bootstrap.AdminEmail)
+	}
 
 	jwtSvc := service.NewJWTService(cfg.JWT)
 	authSvc := service.NewAuthService(userRepo, tokenRepo, attemptRepo, jwtSvc, cfg.Security)

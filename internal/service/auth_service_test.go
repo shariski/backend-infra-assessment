@@ -18,6 +18,7 @@ type mockUserRepo struct {
 	FindByEmailFn func(ctx context.Context, email string) (*domain.User, error)
 	FindByIDFn    func(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	ListFn        func(ctx context.Context) ([]domain.User, error)
+	UpdateRoleFn  func(ctx context.Context, id uuid.UUID, role domain.Role) error
 }
 
 func (m *mockUserRepo) Create(ctx context.Context, u *domain.User) error {
@@ -31,6 +32,9 @@ func (m *mockUserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User
 }
 func (m *mockUserRepo) List(ctx context.Context) ([]domain.User, error) {
 	return m.ListFn(ctx)
+}
+func (m *mockUserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role domain.Role) error {
+	return m.UpdateRoleFn(ctx, id, role)
 }
 
 type mockTokenRepo struct {

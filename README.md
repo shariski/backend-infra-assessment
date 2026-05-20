@@ -79,7 +79,7 @@ golang-jwt/jwt v5 · bcrypt.
 
 ## Implementation status
 
-- **Authentication**: register, login, refresh, logout, RBAC (Admin / Analyst / Viewer), bcrypt password hashing, per-IP login rate limiting, account-level brute-force protection.
+- **Authentication**: register, login, refresh, logout, RBAC (Admin / Analyst / Viewer), bcrypt password hashing, per-IP login rate limiting, account-level brute-force protection. An optional env-driven admin bootstrap (`BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`) idempotently seeds — or promotes — an Admin on startup so the Admin-only routes are reachable on a fresh deployment.
 - **Security Analytics**: request/response logging, a durable audit trail (every non-probe request persisted to `audit_events` with actor, action, status, IP, and request ID), and per-role API rate limiting (per-user token bucket on all authenticated routes — Admin 120 / Analyst 60 / Viewer 30 req/min) are all implemented.
 - **Caching**: per-user response caching on read-heavy GETs (`/auth/me`, `/admin/users`) — successful 200s stored in Redis keyed by route template + user ID, replayed with an `X-Cache: HIT/MISS` header, TTL via `CACHE_TTL` (default 60s); anonymous requests bypass the cache and Redis failures fail open to the handler.
 - **AI threat analysis (bonus)**: `GET /admin/users/:id/threat-summary` (Admin-only) summarizes a user's recent login attempts and audit events into a plain-language risk assessment via a self-hosted Ollama LLM (`llama3.2:1b`). Read-only and out of the auth path. Result cached per target user in Redis (`X-Cache: HIT/MISS`, TTL `LLM_SUMMARY_TTL`). The model runs on a separate VPS reached over a Cloudflare Tunnel; if it is unavailable the endpoint returns `503` and the rest of the API is unaffected.
@@ -167,7 +167,9 @@ kubectl -n staging create secret generic auth-secrets \
   --from-literal=DB_USER=postgres \
   --from-literal=DB_PASSWORD="$(openssl rand -base64 24)" \
   --from-literal=REDIS_PASSWORD="$(openssl rand -base64 24)" \
-  --from-literal=JWT_SECRET="$(openssl rand -base64 48)"
+  --from-literal=JWT_SECRET="$(openssl rand -base64 48)" \
+  --from-literal=BOOTSTRAP_ADMIN_EMAIL='admin@zentara.demo' \
+  --from-literal=BOOTSTRAP_ADMIN_PASSWORD='ZentaraAdmin#2026'
 
 # Grafana Cloud Loki credentials (from your Grafana Cloud stack)
 kubectl -n monitoring create secret generic grafana-cloud \
@@ -179,6 +181,15 @@ kubectl -n monitoring create secret generic grafana-cloud \
 kubectl -n staging create secret generic cloudflared-token \
   --from-literal=token='<tunnel token>'
 ```
+
+> **Admin bootstrap:** `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` seed an
+> Admin on startup (idempotent — created if absent, promoted if present) so the
+> Admin-only routes and the [Postman collection](#try-it-with-postman)'s admin flow
+> work out of the box. Use the same values for the Postman environment's
+> `admin_email` / `admin_password`. Omit both keys to disable seeding. The
+> `admin@zentara.demo` value is a staging-only demo credential — rotate it for any
+> real use. The deployment injects the Secret via `envFrom`, so a `kubectl apply`
+> rollout (or `kubectl rollout restart deploy/auth`) picks up new keys.
 
 ### Apply manifests
 
