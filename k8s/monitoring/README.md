@@ -48,10 +48,10 @@ kubectl -n monitoring logs ds/promtail | grep "msg=" | head -20
 Then in Grafana Cloud → **Explore** → select Loki → run:
 
 ```
-{cluster="zentara-staging", app="auth"} | json
+{cluster="auth-cluster", container="auth"} | json
 ```
 
-You should see your `slog` JSON output, with `level` available as a filterable label.
+You should see your `slog` JSON output, with `level` available as a filterable label and `namespace` (`staging` / `production`) distinguishing the two environments.
 
 ### 5. Build the public dashboard
 
@@ -59,16 +59,18 @@ Recommended panels for the assessment rubric:
 
 | Panel | Query | Why |
 |---|---|---|
-| Recent logs | `{app="auth"}` | Catch-all log viewer |
-| Error rate | `sum(rate({app="auth", level="error"}[5m]))` | Shows reviewer the service is healthy |
-| Login activity | `{app="auth"} \|= "login"` | Demonstrates filterability |
-| Request volume | `sum(count_over_time({app="auth"}[1m]))` | RED method's "Rate" |
+| Recent logs | `{container="auth"} \| json` | Catch-all log viewer (shows `namespace`) |
+| Error rate | `sum by (namespace) (rate({container="auth", level="ERROR"}[5m]))` | Per-env health |
+| Login activity | `{container="auth"} \|= "login"` | Demonstrates filterability |
+| Request volume | `sum by (namespace) (count_over_time({container="auth"}[1m]))` | RED method's "Rate", split by env |
 
-Then **Share dashboard → Public dashboards → Enable**. Copy the public URL and put it in the main `README.md` so the reviewer doesn't need a Grafana Cloud account.
+The committed [`dashboard.json`](dashboard.json) already encodes these panels split `by (namespace)` so one board shows **staging and production** side by side. Import it (Dashboards → New → Import), or paste it into an existing dashboard's **Settings → JSON Model** to update in place — keep the `auth-staging` uid so the existing public URL keeps working.
+
+Then **Share dashboard → Public dashboards → Enable**. Copy the public URL and put it in the main `README.md` so the reviewer doesn't need a Grafana Cloud account. (Grafana public dashboards don't expose interactive template variables, which is why both environments are shown as fixed `by (namespace)` series rather than via an env dropdown.)
 
 ## Why this setup
 
 - **No cluster compute for Grafana/Loki** — both hosted on Grafana Cloud, free tier
 - **Promtail is ~64 Mi memory per node**, runs as DaemonSet so it scales with the cluster
-- **Namespace filter** in `promtail-config.yaml` drops kube-system noise to stay within free tier
+- **Namespace globs** (`staging_*` + `production_*`) in `promtail-config.yaml` ship both app environments while excluding kube-system/system noise to stay within free tier
 - **JSON parsing pipeline** promotes `slog`'s `level` field to a Loki label, enabling fast filtering in Grafana
