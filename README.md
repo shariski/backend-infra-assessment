@@ -68,6 +68,7 @@ curl https://auth-staging.shariski.com/readyz
 | **`Recreate` Deployment strategy** | Single-node-class capacity is tight; rolling updates with surge can hit CPU/memory limits. `Recreate` accepts ~15-30s of downtime per rollout in exchange for reliability on constrained hardware. |
 | **Image substitution via CI `sed`** | Deployment manifest stores `<REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO>/api:<TAG>` as a placeholder; CI substitutes with the git SHA tag at apply time. Avoids committing the moving image reference into version control. |
 | **Swagger UI disabled in production** | `/swagger/*` is only registered when `APP_ENV != "production"` (see `internal/router/router.go`). Production deliberately hides its endpoint catalog, request/response schemas, and error-code map — they're a reconnaissance gift for attackers and add nothing for legitimate machine clients (who consume the API by contract). Reviewers and developers explore the API on **staging** instead; the `swagger.json` is also committed under `docs/` for offline reading. |
+| **Self-hosted LLM on a VPS, not in GKE** | The threat-analysis model (Ollama `llama3.2:1b`) runs on a separate VPS behind a Cloudflare Tunnel, not on the cluster. The e2-small (2 GB) nodes can't host a model without risking OOM of the auth pods, and a GPU node pool would break the sub-$25/mo budget. CPU inference on the VPS is plenty for an admin-triggered, cached endpoint, keeps the cluster topology untouched, and is still a "local" (self-hosted, open-weights) LLM. |
 
 ---
 
@@ -81,6 +82,7 @@ golang-jwt/jwt v5 · bcrypt.
 - **Authentication**: register, login, refresh, logout, RBAC (Admin / Analyst / Viewer), bcrypt password hashing, per-IP login rate limiting, account-level brute-force protection.
 - **Security Analytics**: request/response logging, a durable audit trail (every non-probe request persisted to `audit_events` with actor, action, status, IP, and request ID), and per-role API rate limiting (per-user token bucket on all authenticated routes — Admin 120 / Analyst 60 / Viewer 30 req/min) are all implemented.
 - **Caching**: per-user response caching on read-heavy GETs (`/auth/me`, `/admin/users`) — successful 200s stored in Redis keyed by route template + user ID, replayed with an `X-Cache: HIT/MISS` header, TTL via `CACHE_TTL` (default 60s); anonymous requests bypass the cache and Redis failures fail open to the handler.
+- **AI threat analysis (bonus)**: `GET /admin/users/:id/threat-summary` (Admin-only) summarizes a user's recent login attempts and audit events into a plain-language risk assessment via a self-hosted Ollama LLM (`llama3.2:1b`). Read-only and out of the auth path. Result cached per target user in Redis (`X-Cache: HIT/MISS`, TTL `LLM_SUMMARY_TTL`). The model runs on a separate VPS reached over a Cloudflare Tunnel; if it is unavailable the endpoint returns `503` and the rest of the API is unaffected.
 - **Infrastructure**: GKE Standard cluster, Cloudflare Tunnel for ingress, Promtail → Grafana Cloud Loki for logs, GCP Cloud Monitoring for metrics, HPA for auto-scaling, BackendConfig for L7 health (retained in manifests though tunnel is used in prod).
 - **CI/CD**: GitHub Actions workflow builds Docker image, pushes to Artifact Registry, deploys to staging on push to `develop`, to production on push to `main`.
 
@@ -203,6 +205,42 @@ In the Cloudflare dashboard:
 
 Cloudflare auto-creates the DNS CNAME. The domain resolves through Cloudflare's edge into the in-cluster `cloudflared` connectors.
 
+### LLM backend (VPS + Cloudflare Tunnel)
+
+The threat-analysis model runs on a small VPS (CPU-only), exposed to the cluster
+through a Cloudflare Tunnel with an Access **service token** so only the API can
+call it. Ollama itself stays bound to localhost.
+
+```bash
+# On the VPS (Ubuntu/Debian):
+curl -fsSL https://ollama.com/install.sh | sh        # installs + starts ollama (systemd)
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+printf '[Service]\nEnvironment="OLLAMA_HOST=127.0.0.1:11434"\nEnvironment="OLLAMA_KEEP_ALIVE=5m"\n' \
+  | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+ollama pull llama3.2:1b
+
+# Add a 4 GB swapfile (the box has none — OOM cushion for CPU inference):
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Expose via Cloudflare Tunnel (cloudflared on the VPS):
+#   cloudflared service install <TUNNEL_TOKEN>
+#   Public hostname: ollama.shariski.com  ->  http://localhost:11434
+# Then in Cloudflare Zero Trust > Access, protect ollama.shariski.com with a
+# service-token policy; put the token id/secret in the cluster Secret as
+# CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET.
+```
+
+To run it locally instead (no VPS), use the docker-compose `llm` profile:
+
+```bash
+docker compose --profile llm up -d ollama
+docker compose --profile llm exec ollama ollama pull llama3.2:1b
+# .env already points OLLAMA_URL at http://localhost:11434
+```
+
 ### Verify
 
 ```bash
@@ -299,6 +337,7 @@ The generated `docs/` package is committed so the binary stays self-contained.
 | POST   | `/auth/logout`   | bearer          | Revoke a refresh token            |
 | GET    | `/auth/me`       | bearer          | Current user profile              |
 | GET    | `/admin/users`   | bearer + Admin  | Example RBAC-protected route      |
+| GET    | `/admin/users/{id}/threat-summary` | bearer + Admin | AI risk summary for a user (LLM) |
 | GET    | `/livez`         | public          | Liveness (no dependency checks)   |
 | GET    | `/readyz`        | public          | Readiness (checks DB + Redis)     |
 
