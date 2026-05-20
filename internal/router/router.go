@@ -89,7 +89,9 @@ func New(
 		auth.GET("/me", middleware.Auth(jwtSvc), authHandler.Me)
 	}
 
-	// Swagger UI — exposed outside production so reviewers can explore the API.
+	// Swagger UI is intentionally disabled in production to avoid leaking the
+	// API surface (endpoint catalog, schemas, error codes) to unauthenticated
+	// callers. Staging keeps it on so reviewers and developers can explore.
 	if cfg.App.Env != "production" {
 		r.GET("/swagger/*any", ginswagger.WrapHandler(swaggerfiles.Handler))
 	}
