@@ -1,0 +1,6 @@
+# k6 run artifacts and captured evidence (regenerated per run)
+summary.json
+*.png
+*.jpg
+*.jpeg
+screenshots/
