@@ -409,6 +409,29 @@ The generated `docs/` package is committed so the binary stays self-contained.
 | GET    | `/livez`         | public          | Liveness (no dependency checks)   |
 | GET    | `/readyz`        | public          | Readiness (checks DB + Redis)     |
 
+### Try it with Postman
+
+A ready-to-run collection lives in [`docs/postman/`](docs/postman):
+
+- `zentara-auth.postman_collection.json`
+- `zentara-auth.staging.postman_environment.json`
+
+Import both, select the **ZENTARA Auth — Staging** environment, then run the folders
+top-to-bottom (Collection Runner) or click through in order. Tokens are captured
+automatically, so there's no manual copy-paste:
+
+1. **Health** — `/livez`, `/readyz`.
+2. **Auth lifecycle** — register → login → `/auth/me` (watch `X-Cache` go MISS → HIT)
+   → refresh → logout.
+3. **RBAC proof** — a Viewer is denied `/admin/users` with `403 FORBIDDEN`.
+4. **Admin + AI threat analysis** — admin login → list users → `…/threat-summary`
+   (the LLM feature).
+
+Folder 4 needs an Admin account, seeded by the
+[admin bootstrap](#namespaces-and-secrets); the environment's `admin_email` /
+`admin_password` must match `BOOTSTRAP_ADMIN_*` on the server. The threat-summary
+request tolerates a `503` when the self-hosted model is cold or disabled.
+
 ---
 
 ## Operational notes
