@@ -79,3 +79,16 @@ func TestOllama_Generate_EmptyResponse(t *testing.T) {
 		t.Fatalf("Generate() error = %v, want ErrUnavailable for empty response", err)
 	}
 }
+
+func TestOllama_Generate_BadJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{not valid json`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Model: "m", Timeout: 5 * time.Second})
+	if _, err := c.Generate(context.Background(), "p"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Generate() error = %v, want ErrUnavailable for malformed JSON", err)
+	}
+}

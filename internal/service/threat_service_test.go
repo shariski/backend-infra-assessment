@@ -222,3 +222,58 @@ func TestSummarizeUser_CacheSetErrorBestEffort(t *testing.T) {
 		t.Errorf("Assessment = %q, want 'fine'", got.Assessment)
 	}
 }
+
+func TestEarliest(t *testing.T) {
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// slices arrive newest-first, so the LAST element is the oldest.
+	att := []domain.LoginAttempt{{CreatedAt: base}, {CreatedAt: base.Add(-1 * time.Hour)}}
+	evtOlder := []domain.AuditEvent{{CreatedAt: base.Add(-2 * time.Hour)}, {CreatedAt: base.Add(-3 * time.Hour)}}
+
+	// both populated, events older than attempts -> base-3h
+	if got := earliest(att, evtOlder); got == nil || !got.Equal(base.Add(-3*time.Hour)) {
+		t.Errorf("earliest(events older) = %v, want %v", got, base.Add(-3*time.Hour))
+	}
+
+	// both populated, attempts older than events -> base-5h
+	attOlder := []domain.LoginAttempt{{CreatedAt: base}, {CreatedAt: base.Add(-5 * time.Hour)}}
+	evt := []domain.AuditEvent{{CreatedAt: base.Add(-1 * time.Hour)}, {CreatedAt: base.Add(-2 * time.Hour)}}
+	if got := earliest(attOlder, evt); got == nil || !got.Equal(base.Add(-5*time.Hour)) {
+		t.Errorf("earliest(attempts older) = %v, want %v", got, base.Add(-5*time.Hour))
+	}
+
+	// both empty -> nil
+	if got := earliest(nil, nil); got != nil {
+		t.Errorf("earliest(nil,nil) = %v, want nil", got)
+	}
+}
+
+func TestSummarizeUser_AttemptsRepoError(t *testing.T) {
+	uid := uuid.New()
+	users := &mockUserRepo{FindByIDFn: func(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+		return &domain.User{ID: uid, Email: "u@example.com", Role: domain.RoleViewer}, nil
+	}}
+	attempts := &mockAttemptRepo{ListRecentByEmailFn: func(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error) {
+		return nil, errors.New("db boom")
+	}}
+	svc := newThreatService(users, attempts, &mockAuditRepo{}, &mockLLM{}, newMemCache())
+	if _, _, err := svc.SummarizeUser(context.Background(), uid); err == nil {
+		t.Fatal("expected error from attempts repo, got nil")
+	}
+}
+
+func TestSummarizeUser_AuditsRepoError(t *testing.T) {
+	uid := uuid.New()
+	users := &mockUserRepo{FindByIDFn: func(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+		return &domain.User{ID: uid, Email: "u@example.com", Role: domain.RoleViewer}, nil
+	}}
+	attempts := &mockAttemptRepo{ListRecentByEmailFn: func(ctx context.Context, email string, limit int) ([]domain.LoginAttempt, error) {
+		return nil, nil
+	}}
+	audits := &mockAuditRepo{ListRecentByActorFn: func(ctx context.Context, actorID uuid.UUID, limit int) ([]domain.AuditEvent, error) {
+		return nil, errors.New("db boom")
+	}}
+	svc := newThreatService(users, attempts, audits, &mockLLM{}, newMemCache())
+	if _, _, err := svc.SummarizeUser(context.Background(), uid); err == nil {
+		t.Fatal("expected error from audits repo, got nil")
+	}
+}
