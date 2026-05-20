@@ -1,5 +1,7 @@
 # Auth API — ZENTARA Backend Infrastructure Assessment
 
+[![Tests](https://github.com/shariski/backend-infra-assessment/actions/workflows/test.yml/badge.svg)](https://github.com/shariski/backend-infra-assessment/actions/workflows/test.yml)
+
 A JWT-authenticated REST API with end-to-end encrypted public access, deployed on GKE with Cloudflare Tunnel for zero-public-IP origin and centralized observability.
 
 ## Live Demo
@@ -18,6 +20,79 @@ curl https://auth-staging.shariski.com/livez
 curl https://auth-staging.shariski.com/readyz
 # {"checks":{"db":"ok","redis":"ok"},"ready":true}
 ```
+
+---
+
+## Assessment requirements coverage
+
+A direct map from each assessment requirement to where it is met, so the rubric can be checked at a glance.
+
+**Part 1 — Authentication & Security Analytics**
+
+| Requirement | Where |
+|---|---|
+| JWT auth + refresh tokens | `POST /auth/login`, `/auth/refresh`, `/auth/logout`; `internal/service` (issue/rotate), `internal/middleware` (bearer) |
+| RBAC — Admin / Analyst / Viewer | RBAC middleware (`internal/middleware`); `/admin/*` routes |
+| Password hashing with bcrypt | `pkg/hash` |
+| Login rate limiting + brute-force protection | per-IP login limiter + per-account lockout; `internal/middleware`, `pkg/ratelimit`, `migrations/000003_create_login_attempts` |
+| User activity logging + audit trail | durable `audit_events` table (`migrations/000004…`) written by analytics middleware |
+| API rate limiting per role | per-user token bucket — Admin 120 / Analyst 60 / Viewer 30 rpm; `pkg/ratelimit` |
+| Request/response logging | structured `slog` access logging; analytics middleware |
+| Go 1.21+ | Go 1.25 (`go.mod`) |
+| Gin framework | `internal/handler`, `internal/router` |
+| PostgreSQL + Gorm | `pkg/database`, `internal/repository` |
+| JWT secret management | `JWT_SECRET` via k8s Secret / env, never committed |
+| Request validation + sanitization | `binding:` tags in `internal/handler/dto.go` (e.g. `required,email`, `min=8`) |
+| Structured logging | `pkg/logger` (`log/slog`) |
+| Environment-based config | `config/` (Viper) |
+
+**Part 2 — Infrastructure as Code & CI/CD**
+
+| Requirement | Where |
+|---|---|
+| GitFlow + feature branches + conventional commits | [Git workflow](#git-workflow) |
+| Comprehensive README + setup instructions | this file |
+| Pre-commit hooks (lint + test) | lefthook (`lefthook.yml`) |
+| GitHub Actions automated testing | `.github/workflows/test.yml` |
+| Code coverage reporting | `test.yml` (`-coverprofile`, job-summary `cover -func`, HTML artifact) |
+| Multi-stage Dockerfile | `Dockerfile` (builder → migrate → alpine runtime) |
+| Docker Compose (API + Postgres + Redis) | `docker-compose.yml` |
+| CI/CD: GitHub Actions + GCP (Option B) | `.github/workflows/build-and-deploy.yml` |
+| Container Registry | GCP Artifact Registry (build job) |
+| Secret management | k8s Secrets + Workload Identity Federation OIDC (no static keys) |
+| Staging / production environments | `k8s/staging/`, `k8s/production/`, separate namespaces |
+| Monitoring: health checks + logging | `/livez`, `/readyz`; Promtail → Grafana Cloud Loki |
+
+**Part 3 — Kubernetes & high-traffic architecture**
+
+| Requirement | Where |
+|---|---|
+| Core application Deployment | `k8s/staging/deployment.yaml` |
+| PostgreSQL StatefulSet + persistent volume | `k8s/staging/postgres-statefulset.yaml` |
+| Redis Deployment | `k8s/staging/redis-deployment.yaml` |
+| ConfigMap | `k8s/staging/configmap.yaml` |
+| Secrets | k8s Secrets (created at deploy; see [Deployment](#deployment)) |
+| Caching — Redis response cache for read-heavy GETs | `X-Cache: HIT/MISS` on `/auth/me`, `/admin/users`; `pkg/redis` |
+| Database query optimization | composite indexes (`migrations/000003…`, `000004…`) |
+| Load balancing + auto-scaling (HPA) | `k8s/staging/hpa.yaml`; verified [load-test evidence](loadtest/README.md) |
+
+**Part 4 — Local LLM pipeline (bonus)**
+
+| Requirement | Where |
+|---|---|
+| Local LLM integration (Ollama, Option A) | `GET /admin/users/{id}/threat-summary`; self-hosted Ollama `llama3.2:1b` |
+| GPU optimization | CPU-only trade-off — see [LLM bonus: the "GPU optimization" requirement](#llm-bonus-the-gpu-optimization-requirement) |
+
+**Submission & deployment requirements**
+
+| Requirement | Where |
+|---|---|
+| API docs (Swagger/OpenAPI) | `/swagger/index.html` (staging) + committed `docs/swagger.json` |
+| Deployment guide (step-by-step) | [Deployment](#deployment) |
+| Architecture diagram + design decisions | [Architecture](#architecture) |
+| Cloud hosting + public access over HTTPS | GKE + Cloudflare Tunnel; `auth.shariski.com` / `auth-staging.shariski.com` |
+| Monitoring dashboard | [public Grafana dashboard](https://shariski.grafana.net/public-dashboards/f63a038232084b678d72572f291e37ea) |
+| Security: HTTPS, no exposed secrets | Cloudflare edge TLS; secrets via k8s/env, `.env` git-ignored, Swagger off in prod |
 
 ---
 
@@ -70,6 +145,33 @@ curl https://auth-staging.shariski.com/readyz
 | **Swagger UI disabled in production** | `/swagger/*` is only registered when `APP_ENV != "production"` (see `internal/router/router.go`). Production deliberately hides its endpoint catalog, request/response schemas, and error-code map — they're a reconnaissance gift for attackers and add nothing for legitimate machine clients (who consume the API by contract). Reviewers and developers explore the API on **staging** instead; the `swagger.json` is also committed under `docs/` for offline reading. |
 | **Self-hosted LLM on a VPS, not in GKE** | The threat-analysis model (Ollama `llama3.2:1b`) runs on a separate VPS behind a Cloudflare Tunnel, not on the cluster. The e2-small (2 GB) nodes can't host a model without risking OOM of the auth pods, and a GPU node pool would break the sub-$25/mo budget. CPU inference on the VPS is plenty for an admin-triggered, cached endpoint, keeps the cluster topology untouched, and is still a "local" (self-hosted, open-weights) LLM. |
 
+### LLM bonus: the "GPU optimization" requirement
+
+The bonus asks for the local LLM pipeline "with GPU optimization." I made a
+deliberate choice to run **CPU-only** inference, and want to be explicit about
+the trade-off rather than leave it implicit:
+
+- **Why CPU here.** The whole deployment runs on a sub-$25/mo budget. A managed
+  GPU node pool (e.g. a single T4) is an order of magnitude more than the entire
+  rest of the stack combined, and it would sit ~idle: the threat-summary endpoint
+  is Admin-only, read-only, and Redis-cached, so real demand is a handful of
+  calls per hour, not a sustained throughput workload. For that access pattern,
+  CPU inference of a 1B model returns in a few seconds — well within budget — so
+  a GPU would buy latency that this endpoint's usage profile doesn't need.
+- **What GPU optimization would look like** if the workload justified it:
+  a dedicated GPU node pool with the NVIDIA device plugin and
+  `nvidia.com/gpu` resource requests on the inference pod; a larger quantized
+  model (e.g. an 8B `Q4_K_M`) sized to fit VRAM; layer offload to the GPU
+  (Ollama `num_gpu` / `OLLAMA_NUM_GPU`) with the model kept resident in VRAM
+  (`OLLAMA_KEEP_ALIVE`) to amortize load latency; request batching; and an
+  autoscaler keyed on queue depth / GPU utilization rather than CPU.
+- **What's actually being demonstrated.** The engineering in this bonus is the
+  *pipeline* — prompt construction from real audit/login signals, response
+  caching, and failure isolation (the endpoint returns `503` and never blocks
+  the auth path if the model is down). The accelerator is a cost/throughput knob
+  I've consciously left at "CPU" for this budget; moving it to GPU is a node-pool
+  and config change, not a redesign.
+
 ---
 
 ## Tech Stack
@@ -85,6 +187,38 @@ golang-jwt/jwt v5 · bcrypt.
 - **AI threat analysis (bonus)**: `GET /admin/users/:id/threat-summary` (Admin-only) summarizes a user's recent login attempts and audit events into a plain-language risk assessment via a self-hosted Ollama LLM (`llama3.2:1b`). Read-only and out of the auth path. Result cached per target user in Redis (`X-Cache: HIT/MISS`, TTL `LLM_SUMMARY_TTL`). The model runs on a separate VPS reached over a Cloudflare Tunnel; if it is unavailable the endpoint returns `503` and the rest of the API is unaffected.
 - **Infrastructure**: GKE Standard cluster, Cloudflare Tunnel for ingress, Promtail → Grafana Cloud Loki for logs, GCP Cloud Monitoring for metrics, HPA for auto-scaling, BackendConfig for L7 health (retained in manifests though tunnel is used in prod).
 - **CI/CD**: GitHub Actions workflow builds Docker image, pushes to Artifact Registry, deploys to staging on push to `develop`, to production on push to `main`.
+
+---
+
+## Git workflow
+
+The repo follows **GitFlow** with [Conventional Commits](https://www.conventionalcommits.org/):
+
+- **`main`** — production line; every push deploys to the `production` namespace.
+- **`develop`** — integration line; every push deploys to `staging`.
+- **`feat/*` · `fix/*` · `docs/*` · `refactor/*`** — short-lived branches, one per
+  component/change, merged into `develop` via pull request.
+- **Conventional commit subjects** (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`)
+  — see `git log` for the history.
+
+### Quality gates
+
+| Gate | Tool | When |
+|---|---|---|
+| Format · imports · vet · lint | goimports, `go vet`, golangci-lint | pre-commit (lefthook), staged `*.go` |
+| Unit tests (race) | `go test -short -race ./...` | pre-push (lefthook) |
+| Full tests + coverage | `go test -race -covermode=atomic -coverprofile` | CI (`.github/workflows/test.yml`) |
+| Lint | golangci-lint | CI (`test.yml`) |
+
+**Coverage** runs on every push: CI prints a per-package `go tool cover -func`
+summary to the GitHub Actions **job summary** and uploads an HTML report
+(`coverage.html`) as a downloadable artifact. Reproduce locally:
+
+```sh
+go test -cover ./...                                  # quick per-package %
+go test -coverprofile=coverage.out ./... \
+  && go tool cover -html=coverage.out                # browsable HTML report
+```
 
 ---
 
