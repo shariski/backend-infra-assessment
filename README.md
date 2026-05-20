@@ -4,9 +4,11 @@ A JWT-authenticated REST API with end-to-end encrypted public access, deployed o
 
 ## Live Demo
 
-- **API**: `https://auth-staging.shariski.com`
+- **API (staging)**: `https://auth-staging.shariski.com`
+- **API (production)**: `https://auth.shariski.com`
 - **Health**: [`GET /livez`](https://auth-staging.shariski.com/livez) — process alive
 - **Readiness**: [`GET /readyz`](https://auth-staging.shariski.com/readyz) — DB + Redis reachable
+- **Interactive docs (Swagger)**: <https://auth-staging.shariski.com/swagger/index.html> — staging only (production deliberately hides its API catalog; see [Key design decisions](#key-design-decisions))
 - **Monitoring Dashboard**: <https://shariski.grafana.net/public-dashboards/f63a038232084b678d72572f291e37ea>
 
 ```bash
@@ -65,6 +67,7 @@ curl https://auth-staging.shariski.com/readyz
 | **Promtail + Grafana Cloud Loki** (not in-cluster Loki) | No cluster compute for log storage. Free tier covers <50 GiB/mo. Public dashboard URL shareable with reviewers without granting GCP IAM. |
 | **`Recreate` Deployment strategy** | Single-node-class capacity is tight; rolling updates with surge can hit CPU/memory limits. `Recreate` accepts ~15-30s of downtime per rollout in exchange for reliability on constrained hardware. |
 | **Image substitution via CI `sed`** | Deployment manifest stores `<REGION>-docker.pkg.dev/<PROJECT_ID>/<REPO>/api:<TAG>` as a placeholder; CI substitutes with the git SHA tag at apply time. Avoids committing the moving image reference into version control. |
+| **Swagger UI disabled in production** | `/swagger/*` is only registered when `APP_ENV != "production"` (see `internal/router/router.go`). Production deliberately hides its endpoint catalog, request/response schemas, and error-code map — they're a reconnaissance gift for attackers and add nothing for legitimate machine clients (who consume the API by contract). Reviewers and developers explore the API on **staging** instead; the `swagger.json` is also committed under `docs/` for offline reading. |
 
 ---
 
@@ -211,16 +214,38 @@ curl https://auth-staging.shariski.com/readyz
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/build-and-push.yml`) on push to `develop` or `main`:
+GitHub Actions (`.github/workflows/build-and-deploy.yml`) on push to `develop` or `main` runs four sequential jobs — a deploy retry doesn't rebuild, and a failed migration doesn't roll out a new image:
 
-1. Run tests (`go test`, `golangci-lint`)
-2. Authenticate to GCP via Workload Identity Federation (no long-lived keys)
-3. Build Docker image, tag with git SHA
-4. Push to Artifact Registry
-5. `sed` the image tag into the appropriate environment's deployment manifest
-6. `kubectl apply -f k8s/<env>/`
+```
+test → build → migrate → deploy
+```
+
+1. **test** — `go test`, `golangci-lint`
+2. **build** — auth to GCP via Workload Identity Federation, build image, push to Artifact Registry, emit the SHA-tagged URI as a job output
+3. **migrate** — apply `k8s/<env>/jobs/migrate-job.yaml` (a one-shot K8s `Job` that runs `migrate -path /migrations -database $DSN up`), `kubectl wait` for `condition=complete`, dump logs on failure
+4. **deploy** — `sed` the image tag into `k8s/<env>/deployment.yaml`, `kubectl apply -f k8s/<env>/` (non-recursive, so the `jobs/` subfolder isn't re-applied)
 
 `develop` → staging, `main` → production.
+
+### Database migrations
+
+Migrations are golang-migrate SQL files in `migrations/`. They're baked into the API Docker image at build time (along with the `migrate` binary), so the migrate Job runs the same image as the API itself.
+
+To add a new migration:
+
+```sh
+# locally
+migrate create -ext sql -dir migrations -seq <description>
+# edit the new _up.sql / _down.sql files
+git commit && git push            # CI runs them automatically before the next deploy
+```
+
+Properties of this setup:
+
+- **Always-on, idempotent**: `migrate up` is a no-op when the schema is current, so we run it on every push.
+- **Fail-closed**: if the Job fails (`Complete=False` or timeout), the deploy stage is skipped and the existing pods keep serving on the old schema.
+- **Concurrency-safe**: golang-migrate uses Postgres advisory locks, and the migrate stage has a `concurrency:` group keyed by branch ref so two rapid pushes serialize cleanly.
+- **Audit**: each migration run's logs are dumped to the Actions log, and the Job lingers in-cluster for 10 minutes (`ttlSecondsAfterFinished: 600`) before garbage-collecting itself.
 
 ---
 
@@ -245,7 +270,9 @@ migrations           golang-migrate SQL files
 k8s/
   namespaces.yaml      staging, production, monitoring
   staging/             auth, postgres, redis, services, HPA, ingress (unused, kept for reference), cloudflared, BackendConfig
+  staging/jobs/        one-shot Jobs (migrate); kept in a subfolder so `kubectl apply -f staging/` doesn't re-apply them
   production/          full mirror of staging (auth, postgres, redis, services, HPA, cloudflared) with prod-tier resource limits
+  production/jobs/     production migrate Job
   monitoring/          Promtail RBAC, config, DaemonSet, Grafana Cloud dashboard JSON
 ```
 

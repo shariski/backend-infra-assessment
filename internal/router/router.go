@@ -33,6 +33,7 @@ func New(
 	respCache cache.Cache,
 	db *gorm.DB,
 	rdb *redis.Client,
+	auditRepo domain.AuditEventRepository,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -41,7 +42,7 @@ func New(
 	r := gin.New()
 	r.Use(middleware.Recovery(log))
 	r.Use(middleware.RequestLogger(log)) // STUB
-	r.Use(middleware.Audit(log))         // STUB
+	r.Use(middleware.Audit(auditRepo, log))
 
 	r.GET("/livez", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -95,7 +96,9 @@ func New(
 		)
 	}
 
-	// Swagger UI — exposed outside production so reviewers can explore the API.
+	// Swagger UI is intentionally disabled in production to avoid leaking the
+	// API surface (endpoint catalog, schemas, error codes) to unauthenticated
+	// callers. Staging keeps it on so reviewers and developers can explore.
 	if cfg.App.Env != "production" {
 		r.GET("/swagger/*any", ginswagger.WrapHandler(swaggerfiles.Handler))
 	}
