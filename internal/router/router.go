@@ -82,18 +82,28 @@ func New(
 
 	auth := r.Group("/auth")
 	{
+		// Public routes. /login has its own per-IP brute-force limiter; /refresh
+		// is guarded by refresh-token rotation, so neither carries a role yet.
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login",
 			middleware.LoginRateLimit(limiter, cfg.Security.BruteForceMaxAttempts, cfg.Security.BruteForceMaxAttempts),
 			authHandler.Login,
 		)
 		auth.POST("/refresh", authHandler.Refresh)
-		auth.POST("/logout", middleware.Auth(jwtSvc), authHandler.Logout)
-		auth.GET("/me",
-			middleware.Auth(jwtSvc),
-			middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
-			authHandler.Me,
-		)
+
+		// Authenticated routes share the per-user, per-role token bucket.
+		// RateLimitByRole MUST follow Auth so the role is populated; the
+		// response cache sits inside the limiter so even cache hits are
+		// charged against the caller's quota.
+		authed := auth.Group("")
+		authed.Use(middleware.Auth(jwtSvc), middleware.RateLimitByRole(limiter))
+		{
+			authed.POST("/logout", authHandler.Logout)
+			authed.GET("/me",
+				middleware.ResponseCache(respCache, cfg.Cache.TTL, log),
+				authHandler.Me,
+			)
+		}
 	}
 
 	// Swagger UI is intentionally disabled in production to avoid leaking the
