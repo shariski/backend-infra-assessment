@@ -64,7 +64,7 @@ Recommended panels for the assessment rubric:
 | Login activity | `{container="auth"} \|= "login"` | Demonstrates filterability |
 | Request volume | `sum by (namespace) (count_over_time({container="auth"}[1m]))` | RED method's "Rate", split by env |
 
-The committed [`dashboard.json`](dashboard.json) already encodes these panels split `by (namespace)` so one board shows **staging and production** side by side. Import it (Dashboards → New → Import), or paste it into an existing dashboard's **Settings → JSON Model** to update in place — keep the `auth-staging` uid so the existing public URL keeps working.
+The committed [`dashboard.json`](dashboard.json) encodes these panels split `by (namespace)` so one board shows **staging and production** side by side. It is in Grafana's v13 dashboard schema (`elements` / `layout`). To update the live board: open it → **Edit → Settings → JSON Model**, paste, and **Save** — this updates the dashboard in place, preserving its identity and public URL. (This schema does not load through the legacy *Dashboards → Import* flow; use JSON Model.)
 
 Then **Share dashboard → Public dashboards → Enable**. Copy the public URL and put it in the main `README.md` so the reviewer doesn't need a Grafana Cloud account. (Grafana public dashboards don't expose interactive template variables, which is why both environments are shown as fixed `by (namespace)` series rather than via an env dropdown.)
 
